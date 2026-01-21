@@ -346,6 +346,278 @@
               </label>
             </div>
 
+            <div id="loanFields" class="grid" hidden>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="width: 180px">
+                  <div class="label">借款金额（元）</div>
+                  <input id="loanAmount" type="number" min="0" step="0.01" />
+                </label>
+              </div>
+              <label>
+                <div class="label">用途</div>
+                <textarea id="loanReason" rows="3"></textarea>
+              </label>
+            </div>
+
+            <div id="paymentFields" class="grid" hidden>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">收款方</div>
+                  <input id="paymentPayee" placeholder="对公/对私收款方名称" />
+                </label>
+                <label style="width: 180px">
+                  <div class="label">金额（元）</div>
+                  <input id="paymentAmount" type="number" min="0" step="0.01" />
+                </label>
+              </div>
+              <label>
+                <div class="label">用途</div>
+                <textarea id="paymentPurpose" rows="3"></textarea>
+              </label>
+            </div>
+
+            <div id="budgetFields" class="grid" hidden>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">部门</div>
+                  <input id="budgetDept" placeholder="例如：研发/产品/市场" />
+                </label>
+                <label style="flex: 1">
+                  <div class="label">期间</div>
+                  <input id="budgetPeriod" placeholder="例如：2026Q1 / 2026-02" />
+                </label>
+                <label style="width: 180px">
+                  <div class="label">金额（元）</div>
+                  <input id="budgetAmount" type="number" min="0" step="0.01" />
+                </label>
+              </div>
+              <label>
+                <div class="label">用途</div>
+                <textarea id="budgetPurpose" rows="3"></textarea>
+              </label>
+            </div>
+
+            <div id="invoiceFields" class="grid" hidden>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">开票抬头</div>
+                  <input id="invoiceTitle" placeholder="例如：某某科技有限公司" />
+                </label>
+                <label style="width: 180px">
+                  <div class="label">金额（元）</div>
+                  <input id="invoiceAmount" type="number" min="0" step="0.01" />
+                </label>
+              </div>
+              <label>
+                <div class="label">用途</div>
+                <textarea id="invoicePurpose" rows="3"></textarea>
+              </label>
+            </div>
+
+            <div id="fixedAssetFields" class="grid" hidden>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">资产名称</div>
+                  <input id="faName" placeholder="例如：笔记本电脑/服务器" />
+                </label>
+                <label style="width: 180px">
+                  <div class="label">金额（元）</div>
+                  <input id="faAmount" type="number" min="0" step="0.01" />
+                </label>
+                <label style="width: 200px">
+                  <div class="label">购置日期</div>
+                  <input id="faDate" type="date" />
+                </label>
+              </div>
+            </div>
+
+            <div id="purchasePlusFields" class="grid" hidden>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">物品名称</div>
+                  <input id="ppItemName" placeholder="例如：显示器/电脑" />
+                </label>
+                <label style="width: 120px">
+                  <div class="label">数量</div>
+                  <input id="ppQty" type="number" min="1" step="1" />
+                </label>
+                <label style="width: 160px">
+                  <div class="label">单价（元）</div>
+                  <input id="ppUnitPrice" type="number" min="0" step="0.01" />
+                </label>
+              </div>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">供应商</div>
+                  <input id="ppVendor" placeholder="例如：某某供应商" />
+                </label>
+                <label style="width: 200px">
+                  <div class="label">交付日期</div>
+                  <input id="ppDeliveryDate" type="date" />
+                </label>
+              </div>
+              <label>
+                <div class="label">采购原因</div>
+                <textarea id="ppReason" rows="3"></textarea>
+              </label>
+            </div>
+
+            <div id="quoteCompareFields" class="grid" hidden>
+              <label>
+                <div class="label">主题</div>
+                <input id="qcSubject" placeholder="例如：服务器采购比价" />
+              </label>
+              <label>
+                <div class="label">供应商（每行一个）</div>
+                <textarea id="qcVendors" rows="3"></textarea>
+              </label>
+              <label>
+                <div class="label">推荐结论</div>
+                <input id="qcRecommendation" placeholder="例如：推荐 B" />
+              </label>
+            </div>
+
+            <div id="acceptanceFields" class="grid" hidden>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">采购单号/引用</div>
+                  <input id="accPurchaseRef" placeholder="例如：PO-2026-001" />
+                </label>
+                <label style="width: 200px">
+                  <div class="label">验收日期</div>
+                  <input id="accDate" type="date" />
+                </label>
+              </div>
+              <label>
+                <div class="label">验收说明</div>
+                <textarea id="accSummary" rows="3"></textarea>
+              </label>
+            </div>
+
+            <div id="inventoryInFields" class="grid" hidden>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">仓库</div>
+                  <input id="invInWarehouse" placeholder="例如：主仓" />
+                </label>
+                <label style="width: 200px">
+                  <div class="label">日期</div>
+                  <input id="invInDate" type="date" />
+                </label>
+              </div>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">物品</div>
+                  <input id="invInItem" />
+                </label>
+                <label style="width: 120px">
+                  <div class="label">数量</div>
+                  <input id="invInQty" type="number" min="1" step="1" />
+                </label>
+              </div>
+            </div>
+
+            <div id="inventoryOutFields" class="grid" hidden>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">仓库</div>
+                  <input id="invOutWarehouse" placeholder="例如：主仓" />
+                </label>
+                <label style="width: 200px">
+                  <div class="label">日期</div>
+                  <input id="invOutDate" type="date" />
+                </label>
+              </div>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">物品</div>
+                  <input id="invOutItem" />
+                </label>
+                <label style="width: 120px">
+                  <div class="label">数量</div>
+                  <input id="invOutQty" type="number" min="1" step="1" />
+                </label>
+              </div>
+              <label>
+                <div class="label">原因</div>
+                <textarea id="invOutReason" rows="2"></textarea>
+              </label>
+            </div>
+
+            <div id="deviceClaimFields" class="grid" hidden>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">物品</div>
+                  <input id="dcItem" placeholder="例如：显示器/键盘" />
+                </label>
+                <label style="width: 120px">
+                  <div class="label">数量</div>
+                  <input id="dcQty" type="number" min="1" step="1" />
+                </label>
+              </div>
+              <label>
+                <div class="label">原因</div>
+                <textarea id="dcReason" rows="2"></textarea>
+              </label>
+            </div>
+
+            <div id="assetTransferFields" class="grid" hidden>
+              <label>
+                <div class="label">资产标识</div>
+                <input id="atAsset" placeholder="例如：资产#A1001" />
+              </label>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">原使用人</div>
+                  <input id="atFromUser" />
+                </label>
+                <label style="flex: 1">
+                  <div class="label">新使用人</div>
+                  <input id="atToUser" />
+                </label>
+                <label style="width: 200px">
+                  <div class="label">日期</div>
+                  <input id="atDate" type="date" />
+                </label>
+              </div>
+            </div>
+
+            <div id="assetMaintenanceFields" class="grid" hidden>
+              <label>
+                <div class="label">资产标识</div>
+                <input id="amAsset" placeholder="例如：资产#A1001" />
+              </label>
+              <label>
+                <div class="label">问题描述</div>
+                <textarea id="amIssue" rows="2"></textarea>
+              </label>
+              <label>
+                <div class="label">预计费用（元）</div>
+                <input id="amAmount" type="number" min="0" step="0.01" />
+              </label>
+            </div>
+
+            <div id="assetScrapFields" class="grid" hidden>
+              <label>
+                <div class="label">资产标识</div>
+                <input id="asAsset" placeholder="例如：资产#A1002" />
+              </label>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="width: 200px">
+                  <div class="label">报废日期</div>
+                  <input id="asDate" type="date" />
+                </label>
+                <label style="width: 200px">
+                  <div class="label">残值（元，可选）</div>
+                  <input id="asAmount" type="number" min="0" step="0.01" />
+                </label>
+              </div>
+              <label>
+                <div class="label">原因</div>
+                <textarea id="asReason" rows="2"></textarea>
+              </label>
+            </div>
+
             <label>
               <div class="label">标题</div>
               <input id="reqTitle" placeholder="例如：请假 / 报销 / 采购" />

@@ -109,6 +109,21 @@ class APITestCase(unittest.TestCase):
         self.assertIn(b"travel_expense", js)
         self.assertIn(b"salary_adjustment", js)
 
+    def test_static_finance_procurement_forms_ui_wiring(self):
+        status, _, body = self.http("GET", "/", expect_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b'id="loanFields"', body)
+        self.assertIn(b'id="paymentFields"', body)
+        self.assertIn(b'id="purchasePlusFields"', body)
+        self.assertIn(b'id="inventoryOutFields"', body)
+        self.assertIn(b'id="assetScrapFields"', body)
+
+        status, _, js = self.http("GET", "/app.js", expect_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b"purchase_plus", js)
+        self.assertIn(b"fixed_asset_accounting", js)
+        self.assertIn(b"asset_scrap", js)
+
     def test_static_roles_ui_wiring(self):
         status, _, body = self.http("GET", "/", expect_json=False)
         self.assertEqual(status, 200)
@@ -404,6 +419,97 @@ class APITestCase(unittest.TestCase):
             "/api/requests",
             cookie=user_cookie,
             json_body={"type": "overtime", "title": "", "body": "", "payload": {"date": "2026-01-02", "reason": "x"}},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(out["error"], "invalid_payload")
+
+    def test_finance_workflows_exist_and_payloads_work(self):
+        user_cookie = self.login("user", "user")
+        admin_cookie = self.login("admin", "admin")
+
+        finance_types = [
+            ("loan", {"amount": 1000, "reason": "差旅备用金"}, "借款："),
+            ("payment", {"payee": "某某供应商", "amount": 8888.88, "purpose": "服务费"}, "付款："),
+            ("budget", {"dept": "研发", "amount": 20000, "period": "2026Q1", "purpose": "项目预算"}, "预算："),
+            ("invoice", {"title": "某某科技有限公司", "amount": 1234.56, "purpose": "开票"}, "开票："),
+            ("fixed_asset_accounting", {"asset_name": "笔记本电脑", "amount": 6999, "acquired_date": "2026-01-10"}, "固定资产入账："),
+        ]
+
+        status, _, data = self.http("GET", "/api/workflows", cookie=user_cookie)
+        self.assertEqual(status, 200)
+        keys = {it["key"] for it in (data["items"] or [])}
+        for t, _, _ in finance_types:
+            self.assertIn(t, keys)
+
+        for t, payload, title_prefix in finance_types:
+            status, _, created = self.http(
+                "POST",
+                "/api/requests",
+                cookie=user_cookie,
+                json_body={"type": t, "title": "", "body": "", "payload": payload},
+            )
+            self.assertEqual(status, 201)
+            self.assertTrue(created["title"].startswith(title_prefix))
+
+            req_id = created["id"]
+            status, _, inbox = self.http("GET", "/api/inbox", cookie=admin_cookie)
+            tasks = [it for it in inbox["items"] if it["request"]["id"] == req_id]
+            self.assertTrue(tasks)
+
+        status, _, out = self.http(
+            "POST",
+            "/api/requests",
+            cookie=user_cookie,
+            json_body={"type": "loan", "title": "", "body": "", "payload": {"amount": 0, "reason": "x"}},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(out["error"], "invalid_payload")
+
+    def test_procurement_asset_workflows_exist_and_payloads_work(self):
+        user_cookie = self.login("user", "user")
+        admin_cookie = self.login("admin", "admin")
+
+        types = [
+            (
+                "purchase_plus",
+                {"items": [{"name": "显示器", "qty": 2, "unit_price": 999}], "reason": "办公设备", "vendor": "某某供应商", "delivery_date": "2026-02-01"},
+                "采购（增强）：",
+            ),
+            ("quote_compare", {"subject": "服务器采购比价", "vendors": ["A", "B", "C"], "recommendation": "推荐B"}, "比价："),
+            ("acceptance", {"purchase_ref": "PO-2026-001", "acceptance_date": "2026-02-10", "summary": "到货完好"}, "验收："),
+            ("inventory_in", {"warehouse": "主仓", "date": "2026-02-11", "items": [{"name": "键盘", "qty": 10}]}, "入库："),
+            ("inventory_out", {"warehouse": "主仓", "date": "2026-02-12", "items": [{"name": "鼠标", "qty": 5}], "reason": "发放"}, "出库："),
+            ("device_claim", {"item": "显示器", "qty": 1, "reason": "新员工入职"}, "申领："),
+            ("asset_transfer", {"asset": "资产#A1001", "from_user": "张三", "to_user": "李四", "date": "2026-02-15"}, "调拨："),
+            ("asset_maintenance", {"asset": "资产#A1001", "issue": "无法开机", "amount": 200}, "维修："),
+            ("asset_scrap", {"asset": "资产#A1002", "scrap_date": "2026-02-20", "reason": "报废", "amount": 0}, "报废："),
+        ]
+
+        status, _, data = self.http("GET", "/api/workflows", cookie=user_cookie)
+        self.assertEqual(status, 200)
+        keys = {it["key"] for it in (data["items"] or [])}
+        for t, _, _ in types:
+            self.assertIn(t, keys)
+
+        for t, payload, title_prefix in types:
+            status, _, created = self.http(
+                "POST",
+                "/api/requests",
+                cookie=user_cookie,
+                json_body={"type": t, "title": "", "body": "", "payload": payload},
+            )
+            self.assertEqual(status, 201)
+            self.assertTrue(created["title"].startswith(title_prefix))
+            req_id = created["id"]
+            status, _, inbox = self.http("GET", "/api/inbox", cookie=admin_cookie)
+            tasks = [it for it in inbox["items"] if it["request"]["id"] == req_id]
+            self.assertTrue(tasks)
+
+        status, _, out = self.http(
+            "POST",
+            "/api/requests",
+            cookie=user_cookie,
+            json_body={"type": "purchase_plus", "title": "", "body": "", "payload": {"items": [], "reason": "x", "vendor": "v", "delivery_date": "2026-02-01"}},
         )
         self.assertEqual(status, 400)
         self.assertEqual(out["error"], "invalid_payload")

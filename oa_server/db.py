@@ -486,6 +486,20 @@ def ensure_default_workflows(conn: sqlite3.Connection) -> None:
         ("resignation", "离职流程"),
         ("job_transfer", "调岗流程"),
         ("salary_adjustment", "调薪流程"),
+        ("loan", "借款申请"),
+        ("payment", "付款申请"),
+        ("budget", "预算占用/预支"),
+        ("invoice", "发票/开票申请"),
+        ("fixed_asset_accounting", "固定资产入账审批"),
+        ("purchase_plus", "采购（增强版）"),
+        ("quote_compare", "比价/询价记录"),
+        ("acceptance", "验收流程"),
+        ("inventory_in", "入库"),
+        ("inventory_out", "出库"),
+        ("device_claim", "设备申领"),
+        ("asset_transfer", "资产调拨"),
+        ("asset_maintenance", "资产维修"),
+        ("asset_scrap", "资产报废"),
     ]:
         conn.execute(
             "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
@@ -536,6 +550,50 @@ def ensure_default_workflows(conn: sqlite3.Connection) -> None:
             ("salary_adjustment", 1, "manager", "manager", None, None, None, now),
             ("salary_adjustment", 2, "hr", "role", "admin", None, None, now),
             ("salary_adjustment", 3, "admin", "role", "admin", None, None, now),
+            ("loan", 1, "manager", "manager", None, None, None, now),
+            ("loan", 2, "finance", "role", "admin", None, None, now),
+            ("loan", 3, "admin", "role", "admin", None, None, now),
+            ("payment", 1, "manager", "manager", None, None, None, now),
+            ("payment", 2, "finance", "role", "admin", None, None, now),
+            ("payment", 3, "gm", "role", "admin", "min_amount", "20000", now),
+            ("payment", 4, "admin", "role", "admin", None, None, now),
+            ("budget", 1, "manager", "manager", None, None, None, now),
+            ("budget", 2, "finance", "role", "admin", None, None, now),
+            ("budget", 3, "gm", "role", "admin", "min_amount", "50000", now),
+            ("budget", 4, "admin", "role", "admin", None, None, now),
+            ("invoice", 1, "manager", "manager", None, None, None, now),
+            ("invoice", 2, "finance", "role", "admin", None, None, now),
+            ("invoice", 3, "admin", "role", "admin", None, None, now),
+            ("fixed_asset_accounting", 1, "manager", "manager", None, None, None, now),
+            ("fixed_asset_accounting", 2, "finance", "role", "admin", None, None, now),
+            ("fixed_asset_accounting", 3, "admin", "role", "admin", None, None, now),
+            ("purchase_plus", 1, "manager", "manager", None, None, None, now),
+            ("purchase_plus", 2, "procurement", "role", "admin", None, None, now),
+            ("purchase_plus", 3, "gm", "role", "admin", None, None, now),
+            ("purchase_plus", 4, "finance", "role", "admin", None, None, now),
+            ("purchase_plus", 5, "admin", "role", "admin", None, None, now),
+            ("quote_compare", 1, "manager", "manager", None, None, None, now),
+            ("quote_compare", 2, "procurement", "role", "admin", None, None, now),
+            ("quote_compare", 3, "finance", "role", "admin", None, None, now),
+            ("quote_compare", 4, "admin", "role", "admin", None, None, now),
+            ("acceptance", 1, "manager", "manager", None, None, None, now),
+            ("acceptance", 2, "procurement", "role", "admin", None, None, now),
+            ("acceptance", 3, "admin", "role", "admin", None, None, now),
+            ("inventory_in", 1, "manager", "manager", None, None, None, now),
+            ("inventory_in", 2, "procurement", "role", "admin", None, None, now),
+            ("inventory_in", 3, "admin", "role", "admin", None, None, now),
+            ("inventory_out", 1, "manager", "manager", None, None, None, now),
+            ("inventory_out", 2, "procurement", "role", "admin", None, None, now),
+            ("inventory_out", 3, "admin", "role", "admin", None, None, now),
+            ("device_claim", 1, "manager", "manager", None, None, None, now),
+            ("device_claim", 2, "admin", "role", "admin", None, None, now),
+            ("asset_transfer", 1, "manager", "manager", None, None, None, now),
+            ("asset_transfer", 2, "admin", "role", "admin", None, None, now),
+            ("asset_maintenance", 1, "manager", "manager", None, None, None, now),
+            ("asset_maintenance", 2, "admin", "role", "admin", None, None, now),
+            ("asset_scrap", 1, "manager", "manager", None, None, None, now),
+            ("asset_scrap", 2, "finance", "role", "admin", None, None, now),
+            ("asset_scrap", 3, "admin", "role", "admin", None, None, now),
         ],
     )
 
@@ -630,6 +688,30 @@ def migrate_workflows(conn: sqlite3.Connection) -> None:
     ]:
         _ensure_legacy_workflow(rt, name, steps)
 
+    # Ensure Finance workflow catalog exists for older DBs.
+    for rt, name, steps in [
+        ("loan", "借款申请", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("payment", "付款申请", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "gm", "role", "admin"), (4, "admin", "role", "admin")]),
+        ("budget", "预算占用/预支", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "gm", "role", "admin"), (4, "admin", "role", "admin")]),
+        ("invoice", "发票/开票申请", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("fixed_asset_accounting", "固定资产入账审批", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "admin", "role", "admin")]),
+    ]:
+        _ensure_legacy_workflow(rt, name, steps)
+
+    # Ensure Procurement/Assets workflow catalog exists for older DBs.
+    for rt, name, steps in [
+        ("purchase_plus", "采购（增强版）", [(1, "manager", "manager", None), (2, "procurement", "role", "admin"), (3, "gm", "role", "admin"), (4, "finance", "role", "admin"), (5, "admin", "role", "admin")]),
+        ("quote_compare", "比价/询价记录", [(1, "manager", "manager", None), (2, "procurement", "role", "admin"), (3, "finance", "role", "admin"), (4, "admin", "role", "admin")]),
+        ("acceptance", "验收流程", [(1, "manager", "manager", None), (2, "procurement", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("inventory_in", "入库", [(1, "manager", "manager", None), (2, "procurement", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("inventory_out", "出库", [(1, "manager", "manager", None), (2, "procurement", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("device_claim", "设备申领", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
+        ("asset_transfer", "资产调拨", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
+        ("asset_maintenance", "资产维修", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
+        ("asset_scrap", "资产报废", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "admin", "role", "admin")]),
+    ]:
+        _ensure_legacy_workflow(rt, name, steps)
+
 
 def _default_category_for_request_type(request_type: str) -> str:
     if request_type in {
@@ -645,12 +727,14 @@ def _default_category_for_request_type(request_type: str) -> str:
         "salary_adjustment",
     }:
         return "HR/Admin"
-    if request_type in {"expense"}:
+    if request_type in {"expense", "loan", "payment", "budget", "invoice", "fixed_asset_accounting"}:
         return "Finance"
     if request_type in {"travel_expense"}:
         return "Finance"
-    if request_type in {"purchase"}:
+    if request_type in {"purchase", "purchase_plus", "quote_compare", "acceptance", "inventory_in", "inventory_out"}:
         return "Procurement"
+    if request_type in {"device_claim", "asset_transfer", "asset_maintenance", "asset_scrap"}:
+        return "Assets"
     return "General"
 
 
@@ -811,6 +895,30 @@ def migrate_workflow_variants(conn: sqlite3.Connection) -> None:
         ("resignation", "离职流程", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
         ("job_transfer", "调岗流程", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
         ("salary_adjustment", "调薪流程", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+    ]:
+        _ensure_variant_workflow(rt, rt, name, steps)
+
+    # Ensure Finance workflows exist in v2 catalog for existing DBs.
+    for rt, name, steps in [
+        ("loan", "借款申请", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("payment", "付款申请", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "gm", "role", "admin"), (4, "admin", "role", "admin")]),
+        ("budget", "预算占用/预支", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "gm", "role", "admin"), (4, "admin", "role", "admin")]),
+        ("invoice", "发票/开票申请", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("fixed_asset_accounting", "固定资产入账审批", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "admin", "role", "admin")]),
+    ]:
+        _ensure_variant_workflow(rt, rt, name, steps)
+
+    # Ensure Procurement/Assets workflows exist in v2 catalog for existing DBs.
+    for rt, name, steps in [
+        ("purchase_plus", "采购（增强版）", [(1, "manager", "manager", None), (2, "procurement", "role", "admin"), (3, "gm", "role", "admin"), (4, "finance", "role", "admin"), (5, "admin", "role", "admin")]),
+        ("quote_compare", "比价/询价记录", [(1, "manager", "manager", None), (2, "procurement", "role", "admin"), (3, "finance", "role", "admin"), (4, "admin", "role", "admin")]),
+        ("acceptance", "验收流程", [(1, "manager", "manager", None), (2, "procurement", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("inventory_in", "入库", [(1, "manager", "manager", None), (2, "procurement", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("inventory_out", "出库", [(1, "manager", "manager", None), (2, "procurement", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("device_claim", "设备申领", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
+        ("asset_transfer", "资产调拨", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
+        ("asset_maintenance", "资产维修", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
+        ("asset_scrap", "资产报废", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "admin", "role", "admin")]),
     ]:
         _ensure_variant_workflow(rt, rt, name, steps)
 

@@ -367,6 +367,323 @@ def _build_request_from_payload(
         payload["reason"] = reason
         return title, body, _json_dumps(payload)
 
+    if request_type == "loan":
+        amount_raw = payload.get("amount", None)
+        reason = str(payload.get("reason", "")).strip()
+        try:
+            amount = float(amount_raw)
+        except Exception:
+            amount = 0.0
+        if amount <= 0 or not reason:
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["amount"] = amount
+        payload["reason"] = reason
+        if not title:
+            title = f"借款：{amount:g}元"
+        if not body:
+            body = f"用途：{reason}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "payment":
+        payee = str(payload.get("payee", "")).strip()
+        purpose = str(payload.get("purpose", "")).strip()
+        amount_raw = payload.get("amount", None)
+        try:
+            amount = float(amount_raw)
+        except Exception:
+            amount = 0.0
+        if not payee or not purpose or amount <= 0:
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["payee"] = payee
+        payload["purpose"] = purpose
+        payload["amount"] = amount
+        if not title:
+            title = f"付款：{payee} {amount:g}元"
+        if not body:
+            body = f"用途：{purpose}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "budget":
+        dept = str(payload.get("dept", "")).strip()
+        period = str(payload.get("period", "")).strip()
+        purpose = str(payload.get("purpose", "")).strip()
+        amount_raw = payload.get("amount", None)
+        try:
+            amount = float(amount_raw)
+        except Exception:
+            amount = 0.0
+        if not dept or not period or not purpose or amount <= 0:
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["dept"] = dept
+        payload["period"] = period
+        payload["purpose"] = purpose
+        payload["amount"] = amount
+        if not title:
+            title = f"预算：{dept} {period} {amount:g}元"
+        if not body:
+            body = f"用途：{purpose}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "invoice":
+        invoice_title = str(payload.get("title", "")).strip()
+        purpose = str(payload.get("purpose", "")).strip()
+        amount_raw = payload.get("amount", None)
+        try:
+            amount = float(amount_raw)
+        except Exception:
+            amount = 0.0
+        if not invoice_title or not purpose or amount <= 0:
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["title"] = invoice_title
+        payload["purpose"] = purpose
+        payload["amount"] = amount
+        if not title:
+            title = f"开票：{invoice_title} {amount:g}元"
+        if not body:
+            body = f"用途：{purpose}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "fixed_asset_accounting":
+        asset_name = str(payload.get("asset_name", "")).strip()
+        acquired_date = str(payload.get("acquired_date", "")).strip()
+        amount_raw = payload.get("amount", None)
+        try:
+            amount = float(amount_raw)
+        except Exception:
+            amount = 0.0
+        if not asset_name or amount <= 0 or not acquired_date:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(acquired_date):
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["asset_name"] = asset_name
+        payload["amount"] = amount
+        payload["acquired_date"] = acquired_date
+        if not title:
+            title = f"固定资产入账：{asset_name} {amount:g}元"
+        if not body:
+            body = f"购置日期：{acquired_date}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "purchase_plus":
+        items = payload.get("items")
+        if not isinstance(items, list) or not items:
+            raise ValueError("invalid_payload")
+        reason = str(payload.get("reason", "")).strip()
+        vendor = str(payload.get("vendor", "")).strip()
+        delivery_date = str(payload.get("delivery_date", "")).strip()
+        if not reason or not vendor or not delivery_date:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(delivery_date):
+            raise ValueError("invalid_payload")
+
+        total = 0.0
+        normalized_items: list[dict[str, Any]] = []
+        for it in items:
+            if not isinstance(it, dict):
+                raise ValueError("invalid_payload")
+            name = str(it.get("name", "")).strip()
+            try:
+                qty = int(it.get("qty", 0))
+            except Exception:
+                qty = 0
+            try:
+                unit_price = float(it.get("unit_price", 0))
+            except Exception:
+                unit_price = 0.0
+            if not name or qty <= 0 or unit_price <= 0:
+                raise ValueError("invalid_payload")
+            line_total = qty * unit_price
+            total += line_total
+            normalized_items.append({"name": name, "qty": qty, "unit_price": unit_price, "line_total": line_total})
+
+        if total <= 0:
+            raise ValueError("invalid_payload")
+
+        payload = dict(payload)
+        payload["items"] = normalized_items
+        payload["amount"] = total
+        payload["reason"] = reason
+        payload["vendor"] = vendor
+        payload["delivery_date"] = delivery_date
+
+        if not title:
+            first = normalized_items[0]["name"]
+            more = f"等{len(normalized_items)}项" if len(normalized_items) > 1 else ""
+            title = f"采购（增强）：{first}{more} {total:g}元"
+        if not body:
+            body = f"供应商：{vendor}\n交付日期：{delivery_date}\n原因：{reason}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "quote_compare":
+        subject = str(payload.get("subject", "")).strip()
+        vendors = payload.get("vendors", None)
+        recommendation = str(payload.get("recommendation", "")).strip()
+        if not subject or not isinstance(vendors, list) or len(vendors) < 2:
+            raise ValueError("invalid_payload")
+        vendor_names: list[str] = []
+        for v in vendors:
+            s = str(v).strip()
+            if s:
+                vendor_names.append(s)
+        if len(vendor_names) < 2:
+            raise ValueError("invalid_payload")
+        if not recommendation:
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["subject"] = subject
+        payload["vendors"] = vendor_names
+        payload["recommendation"] = recommendation
+        if not title:
+            title = f"比价：{subject}"
+        if not body:
+            body = f"供应商：{', '.join(vendor_names)}\n推荐：{recommendation}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "acceptance":
+        purchase_ref = str(payload.get("purchase_ref", "")).strip()
+        acceptance_date = str(payload.get("acceptance_date", "")).strip()
+        summary = str(payload.get("summary", "")).strip()
+        if not purchase_ref or not acceptance_date or not summary:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(acceptance_date):
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["purchase_ref"] = purchase_ref
+        payload["acceptance_date"] = acceptance_date
+        payload["summary"] = summary
+        if not title:
+            title = f"验收：{purchase_ref}"
+        if not body:
+            body = f"验收日期：{acceptance_date}\n说明：{summary}"
+        return title, body, _json_dumps(payload)
+
+    if request_type in {"inventory_in", "inventory_out"}:
+        warehouse = str(payload.get("warehouse", "")).strip()
+        date = str(payload.get("date", "")).strip()
+        items = payload.get("items")
+        reason = str(payload.get("reason", "")).strip()
+        if not warehouse or not date or not isinstance(items, list) or not items:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(date):
+            raise ValueError("invalid_payload")
+        normalized_items: list[dict[str, Any]] = []
+        for it in items:
+            if not isinstance(it, dict):
+                raise ValueError("invalid_payload")
+            name = str(it.get("name", "")).strip()
+            try:
+                qty = int(it.get("qty", 0))
+            except Exception:
+                qty = 0
+            if not name or qty <= 0:
+                raise ValueError("invalid_payload")
+            normalized_items.append({"name": name, "qty": qty})
+        if request_type == "inventory_out" and not reason:
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["warehouse"] = warehouse
+        payload["date"] = date
+        payload["items"] = normalized_items
+        payload["reason"] = reason
+        kind_text = "入库" if request_type == "inventory_in" else "出库"
+        if not title:
+            title = f"{kind_text}：{warehouse} {date}（{len(normalized_items)}项）"
+        if not body:
+            lines = [f"- {x['name']} × {x['qty']}" for x in normalized_items]
+            body = f"{kind_text}明细：\n" + "\n".join(lines)
+            if reason:
+                body += f"\n原因：{reason}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "device_claim":
+        item = str(payload.get("item", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        qty_raw = payload.get("qty", None)
+        try:
+            qty = int(qty_raw)
+        except Exception:
+            qty = 0
+        if not item or qty <= 0 or not reason:
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["item"] = item
+        payload["qty"] = qty
+        payload["reason"] = reason
+        if not title:
+            title = f"申领：{item}×{qty}"
+        if not body:
+            body = f"原因：{reason}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "asset_transfer":
+        asset = str(payload.get("asset", "")).strip()
+        from_user = str(payload.get("from_user", "")).strip()
+        to_user = str(payload.get("to_user", "")).strip()
+        date = str(payload.get("date", "")).strip()
+        if not asset or not from_user or not to_user or not date:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(date):
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["asset"] = asset
+        payload["from_user"] = from_user
+        payload["to_user"] = to_user
+        payload["date"] = date
+        if not title:
+            title = f"调拨：{asset} {from_user}→{to_user}"
+        if not body:
+            body = f"日期：{date}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "asset_maintenance":
+        asset = str(payload.get("asset", "")).strip()
+        issue = str(payload.get("issue", "")).strip()
+        amount_raw = payload.get("amount", None)
+        try:
+            amount = float(amount_raw)
+        except Exception:
+            amount = 0.0
+        if not asset or not issue or amount < 0:
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["asset"] = asset
+        payload["issue"] = issue
+        payload["amount"] = amount
+        if not title:
+            title = f"维修：{asset}"
+        if not body:
+            body = f"问题：{issue}" + (f"\n预计费用：{amount:g}元" if amount else "")
+        return title, body, _json_dumps(payload)
+
+    if request_type == "asset_scrap":
+        asset = str(payload.get("asset", "")).strip()
+        scrap_date = str(payload.get("scrap_date", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        amount_raw = payload.get("amount", None)
+        try:
+            amount = float(amount_raw) if amount_raw is not None else 0.0
+        except Exception:
+            amount = 0.0
+        if not asset or not scrap_date or not reason or amount < 0:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(scrap_date):
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["asset"] = asset
+        payload["scrap_date"] = scrap_date
+        payload["reason"] = reason
+        payload["amount"] = amount
+        if not title:
+            title = f"报废：{asset}"
+        if not body:
+            body = f"报废日期：{scrap_date}\n原因：{reason}"
+        return title, body, _json_dumps(payload)
+
     # generic/other: store as-is if provided
     return title, body, _json_dumps(payload)
 

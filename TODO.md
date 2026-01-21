@@ -5,7 +5,9 @@
 - [x] 请假（`leave`）
 - [x] 报销（`expense`，含金额阈值条件 `min_amount`）
 - [x] 采购（`purchase`，含金额阈值条件 `min_amount`）
+- [x] 采购（增强）（`purchase_plus`）
 - [x] 通用（`generic`）
+
 - [x] 加班申请（`overtime`）
 - [x] 补卡/改卡申请（`attendance_correction`）
 - [x] 出差申请（`business_trip`）
@@ -16,6 +18,21 @@
 - [x] 离职流程（`resignation`）
 - [x] 调岗流程（`job_transfer`）
 - [x] 调薪流程（`salary_adjustment`）
+
+- [x] 借款申请（`loan`）
+- [x] 付款申请（`payment`）
+- [x] 预算占用/预支（`budget`）
+- [x] 发票/开票申请（`invoice`）
+- [x] 固定资产入账审批（`fixed_asset_accounting`）
+
+- [x] 比价/询价记录（`quote_compare`）
+- [x] 验收流程（`acceptance`）
+- [x] 入库（`inventory_in`）
+- [x] 出库（`inventory_out`）
+- [x] 设备申领（`device_claim`）
+- [x] 资产调拨（`asset_transfer`）
+- [x] 资产维修（`asset_maintenance`）
+- [x] 资产报废（`asset_scrap`）
 
 ## 平台能力（优先做）
 
@@ -50,21 +67,21 @@
 - [x] 调薪流程
 
 ### 财务
-- [ ] 借款申请
-- [ ] 付款申请（对公/对私，收款方信息）
-- [ ] 预算占用/预支
-- [ ] 发票/开票申请
-- [ ] 固定资产入账审批
+- [x] 借款申请
+- [x] 付款申请（对公/对私，收款方信息）
+- [x] 预算占用/预支
+- [x] 发票/开票申请
+- [x] 固定资产入账审批
 
 ### 采购 / 资产
-- [ ] 采购（增强版）：多物品 + 供应商 + 报价单 + 交付日期
-- [ ] 比价/询价记录
-- [ ] 验收流程
-- [ ] 入库/出库
-- [ ] 设备申领
-- [ ] 资产调拨
-- [ ] 资产维修
-- [ ] 资产报废
+- [x] 采购（增强版）：多物品 + 供应商 + 报价单 + 交付日期
+- [x] 比价/询价记录
+- [x] 验收流程
+- [x] 入库/出库
+- [x] 设备申领
+- [x] 资产调拨
+- [x] 资产维修
+- [x] 资产报废
 
 ### 合同 / 用章 / 法务
 - [ ] 合同审批

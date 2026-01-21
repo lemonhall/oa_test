@@ -65,6 +65,20 @@ function typeText(t) {
     resignation: "离职",
     job_transfer: "调岗",
     salary_adjustment: "调薪",
+    loan: "借款",
+    payment: "付款",
+    budget: "预算",
+    invoice: "开票",
+    fixed_asset_accounting: "固定资产入账",
+    purchase_plus: "采购（增强）",
+    quote_compare: "比价/询价",
+    acceptance: "验收",
+    inventory_in: "入库",
+    inventory_out: "出库",
+    device_claim: "设备申领",
+    asset_transfer: "资产调拨",
+    asset_maintenance: "资产维修",
+    asset_scrap: "资产报废",
   };
   return map[t] || "通用";
 }
@@ -122,6 +136,20 @@ function showCreateFields(type) {
     resignation: "resignationFields",
     job_transfer: "jobTransferFields",
     salary_adjustment: "salaryAdjustFields",
+    loan: "loanFields",
+    payment: "paymentFields",
+    budget: "budgetFields",
+    invoice: "invoiceFields",
+    fixed_asset_accounting: "fixedAssetFields",
+    purchase_plus: "purchasePlusFields",
+    quote_compare: "quoteCompareFields",
+    acceptance: "acceptanceFields",
+    inventory_in: "inventoryInFields",
+    inventory_out: "inventoryOutFields",
+    device_claim: "deviceClaimFields",
+    asset_transfer: "assetTransferFields",
+    asset_maintenance: "assetMaintenanceFields",
+    asset_scrap: "assetScrapFields",
   };
   for (const id of Object.values(map)) {
     const el = document.getElementById(id);
@@ -993,6 +1021,171 @@ $("#createBtn").onclick = async () => {
     payload = { name, effective_date, from_salary, to_salary, reason };
     title = title || "";
     body = body || "";
+  } else if (type === "loan") {
+    const amount = Number($("#loanAmount").value || 0);
+    const reason = $("#loanReason").value.trim();
+    if (!amount || amount <= 0 || !reason) {
+      setError($("#createError"), "借款需要填写金额/用途");
+      return;
+    }
+    payload = { amount, reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "payment") {
+    const payee = $("#paymentPayee").value.trim();
+    const amount = Number($("#paymentAmount").value || 0);
+    const purpose = $("#paymentPurpose").value.trim();
+    if (!payee || !amount || amount <= 0 || !purpose) {
+      setError($("#createError"), "付款需要填写收款方/金额/用途");
+      return;
+    }
+    payload = { payee, amount, purpose };
+    title = title || "";
+    body = body || "";
+  } else if (type === "budget") {
+    const dept = $("#budgetDept").value.trim();
+    const period = $("#budgetPeriod").value.trim();
+    const amount = Number($("#budgetAmount").value || 0);
+    const purpose = $("#budgetPurpose").value.trim();
+    if (!dept || !period || !amount || amount <= 0 || !purpose) {
+      setError($("#createError"), "预算需要填写部门/期间/金额/用途");
+      return;
+    }
+    payload = { dept, period, amount, purpose };
+    title = title || "";
+    body = body || "";
+  } else if (type === "invoice") {
+    const invoiceTitle = $("#invoiceTitle").value.trim();
+    const amount = Number($("#invoiceAmount").value || 0);
+    const purpose = $("#invoicePurpose").value.trim();
+    if (!invoiceTitle || !amount || amount <= 0 || !purpose) {
+      setError($("#createError"), "开票需要填写抬头/金额/用途");
+      return;
+    }
+    payload = { title: invoiceTitle, amount, purpose };
+    title = title || "";
+    body = body || "";
+  } else if (type === "fixed_asset_accounting") {
+    const asset_name = $("#faName").value.trim();
+    const amount = Number($("#faAmount").value || 0);
+    const acquired_date = $("#faDate").value;
+    if (!asset_name || !amount || amount <= 0 || !acquired_date) {
+      setError($("#createError"), "固定资产入账需要填写资产名称/金额/购置日期");
+      return;
+    }
+    payload = { asset_name, amount, acquired_date };
+    title = title || "";
+    body = body || "";
+  } else if (type === "purchase_plus") {
+    const name = $("#ppItemName").value.trim();
+    const qty = Number($("#ppQty").value || 0);
+    const unit_price = Number($("#ppUnitPrice").value || 0);
+    const vendor = $("#ppVendor").value.trim();
+    const delivery_date = $("#ppDeliveryDate").value;
+    const reason = $("#ppReason").value.trim();
+    if (!name || !qty || qty <= 0 || !unit_price || unit_price <= 0 || !vendor || !delivery_date || !reason) {
+      setError($("#createError"), "采购（增强）需要填写物品/数量/单价/供应商/交付日期/原因");
+      return;
+    }
+    payload = { items: [{ name, qty, unit_price }], vendor, delivery_date, reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "quote_compare") {
+    const subject = $("#qcSubject").value.trim();
+    const vendors = $("#qcVendors")
+      .value.split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const recommendation = $("#qcRecommendation").value.trim();
+    if (!subject || vendors.length < 2 || !recommendation) {
+      setError($("#createError"), "比价需要填写主题/至少2个供应商/推荐结论");
+      return;
+    }
+    payload = { subject, vendors, recommendation };
+    title = title || "";
+    body = body || "";
+  } else if (type === "acceptance") {
+    const purchase_ref = $("#accPurchaseRef").value.trim();
+    const acceptance_date = $("#accDate").value;
+    const summary = $("#accSummary").value.trim();
+    if (!purchase_ref || !acceptance_date || !summary) {
+      setError($("#createError"), "验收需要填写采购单号/验收日期/验收说明");
+      return;
+    }
+    payload = { purchase_ref, acceptance_date, summary };
+    title = title || "";
+    body = body || "";
+  } else if (type === "inventory_in") {
+    const warehouse = $("#invInWarehouse").value.trim();
+    const date = $("#invInDate").value;
+    const name = $("#invInItem").value.trim();
+    const qty = Number($("#invInQty").value || 0);
+    if (!warehouse || !date || !name || !qty || qty <= 0) {
+      setError($("#createError"), "入库需要填写仓库/日期/物品/数量");
+      return;
+    }
+    payload = { warehouse, date, items: [{ name, qty }] };
+    title = title || "";
+    body = body || "";
+  } else if (type === "inventory_out") {
+    const warehouse = $("#invOutWarehouse").value.trim();
+    const date = $("#invOutDate").value;
+    const name = $("#invOutItem").value.trim();
+    const qty = Number($("#invOutQty").value || 0);
+    const reason = $("#invOutReason").value.trim();
+    if (!warehouse || !date || !name || !qty || qty <= 0 || !reason) {
+      setError($("#createError"), "出库需要填写仓库/日期/物品/数量/原因");
+      return;
+    }
+    payload = { warehouse, date, items: [{ name, qty }], reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "device_claim") {
+    const item = $("#dcItem").value.trim();
+    const qty = Number($("#dcQty").value || 0);
+    const reason = $("#dcReason").value.trim();
+    if (!item || !qty || qty <= 0 || !reason) {
+      setError($("#createError"), "设备申领需要填写物品/数量/原因");
+      return;
+    }
+    payload = { item, qty, reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "asset_transfer") {
+    const asset = $("#atAsset").value.trim();
+    const from_user = $("#atFromUser").value.trim();
+    const to_user = $("#atToUser").value.trim();
+    const date = $("#atDate").value;
+    if (!asset || !from_user || !to_user || !date) {
+      setError($("#createError"), "资产调拨需要填写资产标识/原使用人/新使用人/日期");
+      return;
+    }
+    payload = { asset, from_user, to_user, date };
+    title = title || "";
+    body = body || "";
+  } else if (type === "asset_maintenance") {
+    const asset = $("#amAsset").value.trim();
+    const issue = $("#amIssue").value.trim();
+    const amount = Number($("#amAmount").value || 0);
+    if (!asset || !issue || amount < 0) {
+      setError($("#createError"), "资产维修需要填写资产标识/问题描述（费用可选）");
+      return;
+    }
+    payload = { asset, issue, amount };
+    title = title || "";
+    body = body || "";
+  } else if (type === "asset_scrap") {
+    const asset = $("#asAsset").value.trim();
+    const scrap_date = $("#asDate").value;
+    const reason = $("#asReason").value.trim();
+    const amount = Number($("#asAmount").value || 0);
+    if (!asset || !scrap_date || !reason || amount < 0) {
+      setError($("#createError"), "资产报废需要填写资产标识/报废日期/原因（残值可选）");
+      return;
+    }
+    payload = { asset, scrap_date, reason, amount };
+    title = title || "";
+    body = body || "";
   } else {
     if (!title || !body) {
       setError($("#createError"), "标题和内容不能为空");
@@ -1069,6 +1262,56 @@ $("#createBtn").onclick = async () => {
     $("#salaryFrom").value = "";
     $("#salaryTo").value = "";
     $("#salaryReason").value = "";
+    $("#loanAmount").value = "";
+    $("#loanReason").value = "";
+    $("#paymentPayee").value = "";
+    $("#paymentAmount").value = "";
+    $("#paymentPurpose").value = "";
+    $("#budgetDept").value = "";
+    $("#budgetPeriod").value = "";
+    $("#budgetAmount").value = "";
+    $("#budgetPurpose").value = "";
+    $("#invoiceTitle").value = "";
+    $("#invoiceAmount").value = "";
+    $("#invoicePurpose").value = "";
+    $("#faName").value = "";
+    $("#faAmount").value = "";
+    $("#faDate").value = "";
+    $("#ppItemName").value = "";
+    $("#ppQty").value = "";
+    $("#ppUnitPrice").value = "";
+    $("#ppVendor").value = "";
+    $("#ppDeliveryDate").value = "";
+    $("#ppReason").value = "";
+    $("#qcSubject").value = "";
+    $("#qcVendors").value = "";
+    $("#qcRecommendation").value = "";
+    $("#accPurchaseRef").value = "";
+    $("#accDate").value = "";
+    $("#accSummary").value = "";
+    $("#invInWarehouse").value = "";
+    $("#invInDate").value = "";
+    $("#invInItem").value = "";
+    $("#invInQty").value = "";
+    $("#invOutWarehouse").value = "";
+    $("#invOutDate").value = "";
+    $("#invOutItem").value = "";
+    $("#invOutQty").value = "";
+    $("#invOutReason").value = "";
+    $("#dcItem").value = "";
+    $("#dcQty").value = "";
+    $("#dcReason").value = "";
+    $("#atAsset").value = "";
+    $("#atFromUser").value = "";
+    $("#atToUser").value = "";
+    $("#atDate").value = "";
+    $("#amAsset").value = "";
+    $("#amIssue").value = "";
+    $("#amAmount").value = "";
+    $("#asAsset").value = "";
+    $("#asDate").value = "";
+    $("#asAmount").value = "";
+    $("#asReason").value = "";
     currentTab = "requests";
     setTab("requests");
   } catch (e) {
