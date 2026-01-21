@@ -9,3 +9,4 @@ data/
 .venv/
 .python-version
 .DS_Store
+oa_server/server_legacy.py
