@@ -59,6 +59,11 @@ Goal: build a small but extensible OA baseline with **vanilla JS + Python (uv) +
   - `requests:read_all` for `GET /api/requests?scope=all`
   - `users:manage`, `workflows:manage`, `rbac:manage` for admin pages
 
+## Add sign + delegation (current)
+
+- Add sign: `POST /api/tasks/{id}/addsign` creates an extra task on the same step; workflow only advances when the whole step has no pending tasks.
+- Delegation (proxy approval): `POST /api/me/delegation` sets a delegate user for your user-assigned tasks; delegate can see/act in inbox.
+
 ## Suggested next iterations
 
 1) Workflow config in DB (not hardcoded in code) ✅ (basic)

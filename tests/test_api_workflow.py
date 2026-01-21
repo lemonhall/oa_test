@@ -887,6 +887,101 @@ class APITestCase(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(updated["status"], "approved")
 
+    def test_add_sign_requires_both_approvals(self):
+        with db.connect(self.db_path) as conn:
+            now = int(time.time())
+            conn.execute(
+                "INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,?,?)",
+                ("signer", hash_password("signer"), "user", now),
+            )
+            signer_id = int(conn.execute("SELECT id FROM users WHERE username='signer'").fetchone()["id"])
+            db.replace_workflow_steps(
+                conn,
+                "generic",
+                name="Generic (admin only)",
+                enabled=True,
+                steps=[{"step_order": 1, "step_key": "admin", "assignee_kind": "role", "assignee_value": "admin"}],
+            )
+
+        user_cookie = self.login("user", "user")
+        admin_cookie = self.login("admin", "admin")
+        signer_cookie = self.login("signer", "signer")
+
+        status, _, created = self.http(
+            "POST",
+            "/api/requests",
+            cookie=user_cookie,
+            json_body={"type": "generic", "title": "addsign", "body": "b"},
+        )
+        self.assertEqual(status, 201)
+        req_id = created["id"]
+
+        status, _, inbox = self.http("GET", "/api/inbox", cookie=admin_cookie)
+        admin_task_id = [it for it in inbox["items"] if it["request"]["id"] == req_id][0]["task"]["id"]
+
+        status, _, updated = self.http(
+            "POST",
+            f"/api/tasks/{admin_task_id}/addsign",
+            cookie=admin_cookie,
+            json_body={"assignee_user_id": signer_id},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["status"], "pending")
+
+        self.http("POST", f"/api/tasks/{admin_task_id}/approve", cookie=admin_cookie, json_body={})
+        status, _, updated = self.http("GET", f"/api/requests/{req_id}", cookie=admin_cookie)
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["request"]["status"], "pending")
+
+        status, _, inbox = self.http("GET", "/api/inbox", cookie=signer_cookie)
+        signer_task_id = [it for it in inbox["items"] if it["request"]["id"] == req_id][0]["task"]["id"]
+        status, _, updated = self.http("POST", f"/api/tasks/{signer_task_id}/approve", cookie=signer_cookie, json_body={})
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["status"], "approved")
+
+    def test_delegation_proxy_can_approve_for_assignee(self):
+        with db.connect(self.db_path) as conn:
+            now = int(time.time())
+            conn.execute(
+                "INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,?,?)",
+                ("proxy", hash_password("proxy"), "user", now),
+            )
+            proxy_id = int(conn.execute("SELECT id FROM users WHERE username='proxy'").fetchone()["id"])
+            db.replace_workflow_steps(
+                conn,
+                "generic",
+                name="Generic (explicit admin user)",
+                enabled=True,
+                steps=[{"step_order": 1, "step_key": "admin", "assignee_kind": "user", "assignee_value": "1"}],
+            )
+
+        admin_cookie = self.login("admin", "admin")
+        user_cookie = self.login("user", "user")
+        proxy_cookie = self.login("proxy", "proxy")
+
+        status, _, _ = self.http(
+            "POST",
+            "/api/me/delegation",
+            cookie=admin_cookie,
+            json_body={"delegate_user_id": proxy_id},
+        )
+        self.assertEqual(status, 201)
+
+        status, _, created = self.http(
+            "POST",
+            "/api/requests",
+            cookie=user_cookie,
+            json_body={"type": "generic", "title": "proxy approve", "body": "b"},
+        )
+        self.assertEqual(status, 201)
+        req_id = created["id"]
+
+        status, _, inbox = self.http("GET", "/api/inbox", cookie=proxy_cookie)
+        task_id = [it for it in inbox["items"] if it["request"]["id"] == req_id][0]["task"]["id"]
+        status, _, updated = self.http("POST", f"/api/tasks/{task_id}/approve", cookie=proxy_cookie, json_body={})
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["status"], "approved")
+
     def test_cc_watchers_and_notifications(self):
         with db.connect(self.db_path) as conn:
             now = int(time.time())

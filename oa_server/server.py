@@ -583,6 +583,31 @@ class Handler(BaseHTTPRequestHandler):
                     headers={"Set-Cookie": _build_session_cookie("", expires_immediately=True)},
                 )
                 return
+ 
+            if path == "/api/me/delegation":
+                user = self._require_user()
+                payload = _read_json(self) or {}
+                delegate_user_id = payload.get("delegate_user_id", None)
+                if delegate_user_id in (None, ""):
+                    with db.connect(self.server.db_path) as conn:
+                        db.set_delegation(conn, user.id, delegate_user_id=None, active=False)
+                    self._send_json(HTTPStatus.CREATED, {"ok": True})
+                    return
+                try:
+                    delegate_user_id_i = int(delegate_user_id)
+                except Exception:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "invalid_id")
+                    return
+                if delegate_user_id_i == user.id:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "invalid_delegate")
+                    return
+                with db.connect(self.server.db_path) as conn:
+                    if not db.get_user_by_id(conn, delegate_user_id_i):
+                        self._send_error(HTTPStatus.BAD_REQUEST, "invalid_delegate")
+                        return
+                    db.set_delegation(conn, user.id, delegate_user_id=delegate_user_id_i, active=True)
+                self._send_json(HTTPStatus.CREATED, {"ok": True})
+                return
 
             if path == "/api/requests":
                 user = self._require_user()
@@ -649,6 +674,19 @@ class Handler(BaseHTTPRequestHandler):
                 comment = None if payload is None else str(payload.get("comment", "")).strip() or None
                 with db.connect(self.server.db_path) as conn:
                     row = _decide_task(conn, user, task_id, decision="approved", comment=comment)
+                self._send_json(HTTPStatus.OK, _row_to_request(row))
+                return
+
+            if path.startswith("/api/tasks/") and path.endswith("/addsign"):
+                user = self._require_user()
+                task_id = _parse_task_id(path, suffix="/addsign")
+                payload = _read_json(self) or {}
+                assignee_user_id = payload.get("assignee_user_id", None)
+                if assignee_user_id in (None, ""):
+                    self._send_error(HTTPStatus.BAD_REQUEST, "missing_fields")
+                    return
+                with db.connect(self.server.db_path) as conn:
+                    row = _add_sign(conn, user, task_id, assignee_user_id=int(assignee_user_id))
                 self._send_json(HTTPStatus.OK, _row_to_request(row))
                 return
 
@@ -1354,6 +1392,14 @@ def _can_act_on_task(user: AuthenticatedUser, task_row) -> bool:
     return False
 
 
+def _can_act_on_task_with_delegation(conn, user: AuthenticatedUser, task_row) -> bool:
+    if _can_act_on_task(user, task_row):
+        return True
+    if task_row["assignee_user_id"] is None:
+        return False
+    return db.is_active_delegate(conn, int(task_row["assignee_user_id"]), int(user.id))
+
+
 def _sanitize_filename(filename: str) -> str:
     name = str(filename).replace("\\", "/").split("/")[-1].strip()
     if not name:
@@ -1436,7 +1482,7 @@ def _transfer_task(conn, user: AuthenticatedUser, task_id: int, *, assignee_user
         raise FileNotFoundError("task_not_found")
     if str(task["status"]) != "pending":
         raise RuntimeError("task_already_decided")
-    if user.role != "admin" and not _can_act_on_task(user, task):
+    if user.role != "admin" and not _can_act_on_task_with_delegation(conn, user, task):
         raise PermissionError("not_authorized")
 
     req = db.get_request(conn, int(task["request_id"]))
@@ -1459,13 +1505,49 @@ def _transfer_task(conn, user: AuthenticatedUser, task_id: int, *, assignee_user
     return db.get_request(conn, int(task["request_id"]))
 
 
+def _add_sign(conn, user: AuthenticatedUser, task_id: int, *, assignee_user_id: int):
+    task = db.get_task(conn, task_id)
+    if not task:
+        raise FileNotFoundError("task_not_found")
+    if str(task["status"]) != "pending":
+        raise RuntimeError("task_already_decided")
+    if not _can_act_on_task_with_delegation(conn, user, task):
+        raise PermissionError("not_authorized")
+
+    req = db.get_request(conn, int(task["request_id"]))
+    if not req:
+        raise FileNotFoundError("request_not_found")
+    if str(req["status"]) != "pending":
+        raise RuntimeError("request_already_decided")
+
+    if not db.get_user_by_id(conn, int(assignee_user_id)):
+        raise FileNotFoundError("user_not_found")
+
+    db.create_task(
+        conn,
+        int(task["request_id"]),
+        step_order=None if task["step_order"] is None else int(task["step_order"]),
+        step_key=str(task["step_key"]),
+        assignee_user_id=int(assignee_user_id),
+        assignee_role=None,
+    )
+    db.add_request_event(
+        conn,
+        int(task["request_id"]),
+        event_type="task_addsigned",
+        actor_user_id=user.id,
+        message=f"task={task_id} to_user_id={assignee_user_id}",
+    )
+    return db.get_request(conn, int(task["request_id"]))
+
+
 def _return_for_changes(conn, user: AuthenticatedUser, task_id: int, *, comment: str | None):
     task = db.get_task(conn, task_id)
     if not task:
         raise FileNotFoundError("task_not_found")
     if str(task["status"]) != "pending":
         raise RuntimeError("task_already_decided")
-    if not _can_act_on_task(user, task):
+    if not _can_act_on_task_with_delegation(conn, user, task):
         raise PermissionError("not_authorized")
 
     request_id = int(task["request_id"])
@@ -1504,7 +1586,7 @@ def _decide_task(conn, user: AuthenticatedUser, task_id: int, *, decision: str, 
         raise FileNotFoundError("task_not_found")
     if str(task["status"]) != "pending":
         raise RuntimeError("task_already_decided")
-    if not _can_act_on_task(user, task):
+    if not _can_act_on_task_with_delegation(conn, user, task):
         raise PermissionError("not_authorized")
 
     req = db.get_request(conn, int(task["request_id"]))
@@ -1585,6 +1667,11 @@ def _decide_task(conn, user: AuthenticatedUser, task_id: int, *, decision: str, 
             except_task_id=int(task_id),
             decided_by=user.id,
         )
+
+    if current_order is not None:
+        group = db.list_tasks_for_step(conn, int(task["request_id"]), int(current_order))
+        if any(str(t["status"]) == "pending" for t in group):
+            return db.get_request(conn, int(task["request_id"]))
 
     next_step_row = _find_next_step(steps, current_order=current_order, request_payload=request_payload, creator_dept=creator_dept)
 

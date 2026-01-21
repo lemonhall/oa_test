@@ -136,6 +136,14 @@ def init_db(db_path: Path) -> None:
               UNIQUE(role_name, permission_key)
             );
 
+            CREATE TABLE IF NOT EXISTS delegations (
+              delegator_user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+              delegate_user_id INTEGER REFERENCES users(id),
+              active INTEGER NOT NULL,
+              created_at INTEGER NOT NULL,
+              revoked_at INTEGER
+            );
+
             CREATE TABLE IF NOT EXISTS workflow_definitions (
               request_type TEXT PRIMARY KEY,
               name TEXT NOT NULL,
@@ -340,10 +348,16 @@ def list_inbox_tasks(conn: sqlite3.Connection, *, user_id: int, role: str):
           AND (
             t.assignee_user_id = ?
             OR (t.assignee_role IS NOT NULL AND t.assignee_role = ?)
+            OR (
+              t.assignee_user_id IS NOT NULL
+              AND t.assignee_user_id IN (
+                SELECT delegator_user_id FROM delegations WHERE delegate_user_id=? AND active=1
+              )
+            )
           )
         ORDER BY t.id DESC
         """,
-        (user_id, role),
+        (user_id, role, user_id),
     ).fetchall()
 
 
@@ -1045,6 +1059,43 @@ def role_has_permission(conn: sqlite3.Connection, role_name: str, permission_key
     row = conn.execute(
         "SELECT 1 FROM role_permissions WHERE role_name=? AND permission_key=? LIMIT 1",
         (role_name, permission_key),
+    ).fetchone()
+    return row is not None
+
+
+def set_delegation(conn: sqlite3.Connection, delegator_user_id: int, *, delegate_user_id: int | None, active: bool) -> None:
+    now = int(time.time())
+    if active and delegate_user_id is None:
+        raise ValueError("missing_delegate")
+    existing = conn.execute(
+        "SELECT 1 FROM delegations WHERE delegator_user_id=? LIMIT 1",
+        (delegator_user_id,),
+    ).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE delegations SET delegate_user_id=?, active=?, revoked_at=? WHERE delegator_user_id=?",
+            (delegate_user_id, 1 if active else 0, None if active else now, delegator_user_id),
+        )
+        return
+    conn.execute(
+        "INSERT INTO delegations(delegator_user_id,delegate_user_id,active,created_at,revoked_at) VALUES(?,?,?,?,?)",
+        (delegator_user_id, delegate_user_id, 1 if active else 0, now, None if active else now),
+    )
+
+
+def get_delegation(conn: sqlite3.Connection, delegator_user_id: int):
+    return conn.execute("SELECT * FROM delegations WHERE delegator_user_id=?", (delegator_user_id,)).fetchone()
+
+
+def is_active_delegate(conn: sqlite3.Connection, delegator_user_id: int, delegate_user_id: int) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM delegations
+        WHERE delegator_user_id=? AND delegate_user_id=? AND active=1
+        LIMIT 1
+        """,
+        (delegator_user_id, delegate_user_id),
     ).fetchone()
     return row is not None
 
