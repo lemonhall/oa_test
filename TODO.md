@@ -1,76 +1,76 @@
-# OA Backlog (TODO)
+# OA 待办清单（Backlog / TODO）
 
-## Current (implemented)
+## 已实现（当前）
 
-- [x] Leave (`leave`)
-- [x] Expense (`expense`) with amount threshold step (`min_amount`)
-- [x] Purchase (`purchase`) with amount threshold step (`min_amount`)
-- [x] Generic (`generic`)
+- [x] 请假（`leave`）
+- [x] 报销（`expense`，含金额阈值条件 `min_amount`）
+- [x] 采购（`purchase`，含金额阈值条件 `min_amount`）
+- [x] 通用（`generic`）
 
-## Next (platform capabilities)
+## 平台能力（优先做）
 
-- [ ] Workflow editor API (CRUD `workflow_definitions` / `workflow_steps`)
-- [ ] Workflow editor UI (admin)
-- [ ] Workflow variants per department (scope)
-- [ ] More step conditions (e.g. `max_amount`, `dept_in`, `category_in`, `days>=N`)
-- [ ] Parallel approvals / countersign (ALL / ANY)
-- [ ] Return for changes / resubmit
-- [ ] Withdraw / cancel request
-- [ ] Delegate / proxy approvals
-- [ ] CC / watchers + in-app notifications
-- [ ] Attachments upload/download (local first)
-- [ ] RBAC: permissions + role management + menu gating
-- [ ] Org model: departments, positions, org chart, manager chain
-- [ ] Search + filters + exports (CSV)
+- [ ] 工作流管理 API（CRUD `workflow_variants` / `workflow_variant_steps`）
+- [ ] 工作流管理 UI（管理员）
+- [ ] 按部门的流程变体（scope：同一 `request_type` 不同部门不同审批链）
+- [ ] 更多步骤条件（例如：`max_amount`、`dept_in`、`category_in`、`days>=N`）
+- [ ] 并行会签 / 会审（ALL / ANY）
+- [ ] 退回修改 / 重新提交
+- [ ] 撤回 / 作废
+- [ ] 转交 / 加签 / 代理审批
+- [ ] 抄送/关注人 + 站内通知
+- [ ] 附件上传/下载（先本地存储）
+- [ ] 权限体系（RBAC）：权限点 + 角色管理 + 菜单可见性
+- [ ] 组织架构：部门、岗位、组织树、上级链
+- [ ] 搜索 + 筛选 + 导出（CSV）
 
-## Business flows (common OA request types)
+## 业务流程（常见 OA 申请类型）
 
-### HR / Admin
-- [ ] Overtime request (加班)
-- [ ] Time correction /补卡
-- [ ] Business trip request (出差)
-- [ ] Outing request (外出)
-- [ ] Travel reimbursement (差旅报销，细化到交通/住宿/补贴)
-- [ ] Onboarding (入职)
-- [ ] Probation -> regular (转正)
-- [ ] Resignation (离职)
-- [ ] Transfer / job change (调岗)
-- [ ] Salary adjustment (调薪)
+### 人事 / 行政
+- [ ] 加班申请
+- [ ] 补卡/改卡申请
+- [ ] 出差申请
+- [ ] 外出申请
+- [ ] 差旅报销（细化到交通/住宿/补贴等）
+- [ ] 入职流程
+- [ ] 转正流程
+- [ ] 离职流程
+- [ ] 调岗流程
+- [ ] 调薪流程
 
-### Finance
-- [ ] Borrow / loan request (借款)
-- [ ] Payment request (付款申请: vendor/bank account)
-- [ ] Budget pre-occupy (预算占用/预支)
-- [ ] Invoice request (发票/开票)
-- [ ] Asset capitalization approval (固定资产入账)
+### 财务
+- [ ] 借款申请
+- [ ] 付款申请（对公/对私，收款方信息）
+- [ ] 预算占用/预支
+- [ ] 发票/开票申请
+- [ ] 固定资产入账审批
 
-### Procurement / Assets
-- [ ] Purchase (enhanced): multi-items + vendor + quotes + delivery date
-- [ ] Compare quotes / bidding record (比价/询价)
-- [ ] Goods receipt / acceptance (验收)
-- [ ] Warehouse inbound/outbound (入库/出库)
-- [ ] Asset request (设备申领)
-- [ ] Asset transfer (资产调拨)
-- [ ] Asset repair (维修)
-- [ ] Asset scrap (报废)
+### 采购 / 资产
+- [ ] 采购（增强版）：多物品 + 供应商 + 报价单 + 交付日期
+- [ ] 比价/询价记录
+- [ ] 验收流程
+- [ ] 入库/出库
+- [ ] 设备申领
+- [ ] 资产调拨
+- [ ] 资产维修
+- [ ] 资产报废
 
-### Contract / Seal / Legal
-- [ ] Contract approval (合同审批)
-- [ ] Legal review step (法务审查)
-- [ ] Seal request (用章)
-- [ ] Archiving (归档)
+### 合同 / 用章 / 法务
+- [ ] 合同审批
+- [ ] 法务审查（会签）
+- [ ] 用章申请
+- [ ] 合同/文件归档
 
-### IT / Access
-- [ ] Account opening (账号开通)
-- [ ] Permission access request (系统权限)
-- [ ] VPN / email enabling (VPN/邮箱)
-- [ ] Device request (设备申请)
+### IT / 权限
+- [ ] 账号开通
+- [ ] 系统权限申请
+- [ ] VPN/邮箱开通
+- [ ] 设备申请
 
-### Facilities / Resources
-- [ ] Meeting room booking (会议室)
-- [ ] Vehicle request (用车)
-- [ ] Supplies request (物品领用)
+### 资源 / 后勤
+- [ ] 会议室预定
+- [ ] 用车申请
+- [ ] 物品领用
 
-### Document / Compliance
-- [ ] Document publishing (制度/公告发布)
-- [ ] Read & acknowledge (阅读确认)
+### 公文 / 合规
+- [ ] 制度/公告发布
+- [ ] 阅读确认
