@@ -75,6 +75,10 @@ h2 {
   gap: 12px;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 .label {
   margin-bottom: 6px;
   color: var(--muted);

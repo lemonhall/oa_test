@@ -25,6 +25,7 @@ uv run python -m oa_server
 - `leave`（请假）：直属领导审批 → 结束
 - `expense`（报销）：直属领导审批 → 财务审批（admin 角色）→ 结束
 - `generic`（通用）：管理员审批 → 结束
+Note: workflows are now stored in SQLite tables `workflow_definitions` / `workflow_steps` (UI/API to edit them comes later).
 
 如果你遇到本机环境不允许写入 `__pycache__` 的情况，可以临时用：
 ```powershell
@@ -50,3 +51,22 @@ python -m oa_server
 - `POST /api/tasks/{id}/reject`：审批驳回
 - `GET /api/users`：用户列表（admin）
 - `POST /api/users/{id}`：更新用户 dept/manager（admin）
+
+## 测试（unittest）
+
+```powershell
+$env:PYTHONDONTWRITEBYTECODE='1'
+uv run python -m unittest discover -s tests -p "test_*.py" -q
+```
+
+## Git 工作流（建议）
+
+我默认不会帮你自动 `git commit`（避免污染你的历史），但建议你从现在开始用小步提交：
+
+```powershell
+git status
+git add -A
+git commit -m "feat: oa baseline"
+```
+
+

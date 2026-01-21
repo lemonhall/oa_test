@@ -24,10 +24,35 @@ Goal: build a small but extensible OA baseline with **vanilla JS + Python (uv) +
 
 ## Suggested next iterations
 
-1) Workflow config in DB (not hardcoded in code)
+1) Workflow config in DB (not hardcoded in code) ✅ (basic)
 2) RBAC + menu permissions
 3) Form templates (structured payload per request type)
 4) Notifications (in-app first, then email/IM)
 5) Attachments (local first, then object storage)
 6) Reports + exports (CSV)
 
+## Workflows (current)
+
+Workflows are stored in SQLite:
+- `workflow_definitions`: one row per request type
+- `workflow_steps`: ordered steps (`step_order`) with assignee rules
+
+Assignee rule (`assignee_kind`):
+- `manager`: the request creator's `manager_id` (fallback to role `admin` if missing)
+- `role`: assign to a role name in `assignee_value` (e.g. `admin`)
+- `user`: assign to a specific user id in `assignee_value`
+
+## Request payloads (current)
+
+Some request types can store structured form data in `requests.payload_json` (JSON string), and the API also returns it as `request.payload`.
+
+## Step conditions (current)
+
+Workflow steps can optionally include conditions:
+- `condition_kind`: currently supports `min_amount` (expense payload `amount` >= `condition_value`)
+- `condition_value`: numeric threshold (stored as text)
+
+## Added flows
+
+- `expense`: manager -> gm(if amount>=5000) -> finance
+- `purchase`: manager -> gm(if amount>=20000) -> procurement -> finance

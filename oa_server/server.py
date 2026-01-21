@@ -23,6 +23,150 @@ def _json_bytes(payload: Any) -> bytes:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
+def _json_dumps(payload: Any) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _is_iso_date(value: str) -> bool:
+    if len(value) != 10:
+        return False
+    # YYYY-MM-DD (lightweight check)
+    return value[4] == "-" and value[7] == "-" and value[:4].isdigit() and value[5:7].isdigit() and value[8:10].isdigit()
+
+
+def _build_request_from_payload(
+    request_type: str,
+    *,
+    title: str,
+    body: str,
+    payload: dict[str, Any] | None,
+) -> tuple[str, str, str | None]:
+    if payload is None:
+        return title, body, None
+
+    if request_type == "leave":
+        start_date = str(payload.get("start_date", "")).strip()
+        end_date = str(payload.get("end_date", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        days_raw = payload.get("days", None)
+        try:
+            days = int(days_raw)
+        except Exception:
+            days = 0
+        if not start_date or not end_date or not reason or days <= 0:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(start_date) or not _is_iso_date(end_date):
+            raise ValueError("invalid_payload")
+
+        if not title:
+            title = f"请假：{start_date}~{end_date}（{days}天）"
+        if not body:
+            body = f"原因：{reason}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "expense":
+        category = str(payload.get("category", "")).strip() or "报销"
+        reason = str(payload.get("reason", "")).strip()
+        amount_raw = payload.get("amount", None)
+        try:
+            amount = float(amount_raw)
+        except Exception:
+            amount = 0.0
+        if amount <= 0:
+            raise ValueError("invalid_payload")
+        if not title:
+            title = f"报销：{category} {amount:g}元"
+        if not body:
+            body = reason or f"类别：{category}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "purchase":
+        items = payload.get("items")
+        if not isinstance(items, list) or not items:
+            raise ValueError("invalid_payload")
+        reason = str(payload.get("reason", "")).strip()
+        if not reason:
+            raise ValueError("invalid_payload")
+
+        total = 0.0
+        normalized_items: list[dict[str, Any]] = []
+        for it in items:
+            if not isinstance(it, dict):
+                raise ValueError("invalid_payload")
+            name = str(it.get("name", "")).strip()
+            try:
+                qty = int(it.get("qty", 0))
+            except Exception:
+                qty = 0
+            try:
+                unit_price = float(it.get("unit_price", 0))
+            except Exception:
+                unit_price = 0.0
+            if not name or qty <= 0 or unit_price <= 0:
+                raise ValueError("invalid_payload")
+            line_total = qty * unit_price
+            total += line_total
+            normalized_items.append({"name": name, "qty": qty, "unit_price": unit_price, "line_total": line_total})
+
+        if total <= 0:
+            raise ValueError("invalid_payload")
+
+        payload = dict(payload)
+        payload["items"] = normalized_items
+        payload["amount"] = float(payload.get("amount", total)) if payload.get("amount") is not None else total
+        payload["amount"] = total  # canonical amount derived from items
+
+        if not title:
+            first = normalized_items[0]["name"]
+            more = f"等{len(normalized_items)}项" if len(normalized_items) > 1 else ""
+            title = f"采购：{first}{more} {total:g}元"
+        if not body:
+            body = f"原因：{reason}"
+        return title, body, _json_dumps(payload)
+
+    # generic/other: store as-is if provided
+    return title, body, _json_dumps(payload)
+
+
+def _parse_payload_json(req_row) -> dict[str, Any] | None:
+    if "payload_json" not in req_row.keys() or req_row["payload_json"] is None:
+        return None
+    try:
+        obj = json.loads(str(req_row["payload_json"]))
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        return None
+
+
+def _step_condition_passes(step_row, request_payload: dict[str, Any] | None) -> bool:
+    kind = None if step_row["condition_kind"] is None else str(step_row["condition_kind"]).strip()
+    value = None if step_row["condition_value"] is None else str(step_row["condition_value"]).strip()
+    if not kind:
+        return True
+    if kind == "min_amount":
+        if not request_payload:
+            return False
+        try:
+            amount = float(request_payload.get("amount"))
+            threshold = float(value or "0")
+        except Exception:
+            return False
+        return amount >= threshold
+    # Unknown conditions default to True (safer than skipping required approvals)
+    return True
+
+
+def _find_next_step(steps, *, current_order: int | None, request_payload: dict[str, Any] | None):
+    if not steps:
+        return None
+    for s in steps:
+        if current_order is not None and int(s["step_order"]) <= int(current_order):
+            continue
+        if _step_condition_passes(s, request_payload):
+            return s
+    return None
+
+
 def _read_json(handler: BaseHTTPRequestHandler) -> Any:
     length_s = handler.headers.get("Content-Length", "0")
     try:
@@ -242,11 +386,25 @@ class Handler(BaseHTTPRequestHandler):
                 request_type = str(payload.get("type", "generic")).strip() or "generic"
                 title = str(payload.get("title", "")).strip()
                 body = str(payload.get("body", "")).strip()
+                req_payload = payload.get("payload", None)
+                if req_payload is not None and not isinstance(req_payload, dict):
+                    self._send_error(HTTPStatus.BAD_REQUEST, "invalid_payload")
+                    return
+                try:
+                    title, body, payload_json = _build_request_from_payload(
+                        request_type,
+                        title=title,
+                        body=body,
+                        payload=req_payload,
+                    )
+                except ValueError:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "invalid_payload")
+                    return
                 if not title or not body:
                     self._send_error(HTTPStatus.BAD_REQUEST, "missing_fields")
                     return
                 with db.connect(self.server.db_path) as conn:
-                    request_id = db.create_request(conn, user.id, request_type, title, body)
+                    request_id = db.create_request(conn, user.id, request_type, title, body, payload_json=payload_json)
                     db.add_request_event(
                         conn,
                         request_id,
@@ -393,11 +551,18 @@ def _parse_user_id(path: str, suffix: str) -> int:
 
 
 def _row_to_request(row) -> dict[str, Any]:
+    payload_obj = None
+    if "payload_json" in row.keys() and row["payload_json"] is not None:
+        try:
+            payload_obj = json.loads(str(row["payload_json"]))
+        except Exception:
+            payload_obj = None
     return {
         "id": int(row["id"]),
         "type": str(row["request_type"]) if "request_type" in row.keys() else "generic",
         "title": str(row["title"]),
         "body": str(row["body"]),
+        "payload": payload_obj,
         "status": str(row["status"]),
         "created_at": int(row["created_at"]),
         "updated_at": None if row["updated_at"] is None else int(row["updated_at"]),
@@ -486,48 +651,47 @@ def _row_to_user(row) -> dict[str, Any]:
 
 
 def _create_initial_task(conn, request_id: int, *, creator: AuthenticatedUser, request_type: str) -> None:
-    step = "admin"
-    assignee_user_id: int | None = None
-    assignee_role: str | None = "admin"
+    _start_workflow(conn, request_id, creator=creator, request_type=request_type)
 
-    if request_type in {"leave", "expense"}:
-        step = "manager"
-        assignee_user_id = creator.manager_id
-        assignee_role = None if assignee_user_id is not None else "admin"
+def _resolve_assignee(creator: AuthenticatedUser, step_row) -> tuple[int | None, str | None]:
+    kind = str(step_row["assignee_kind"])
+    value = None if step_row["assignee_value"] is None else str(step_row["assignee_value"])
+    if kind == "manager":
+        if creator.manager_id is not None:
+            return (creator.manager_id, None)
+        return (None, "admin")
+    if kind == "role":
+        return (None, value or "admin")
+    if kind == "user":
+        return (int(value), None) if value else (None, "admin")
+    return (None, "admin")
 
-    if request_type == "generic":
-        step = "admin"
-        assignee_user_id = None
-        assignee_role = "admin"
+
+def _start_workflow(conn, request_id: int, *, creator: AuthenticatedUser, request_type: str) -> None:
+    steps = db.list_workflow_steps(conn, request_type)
+    if not steps:
+        steps = db.list_workflow_steps(conn, "generic")
+    if not steps:
+        step_order = 1
+        step_key = "admin"
+        assignee_user_id, assignee_role = (None, "admin")
+    else:
+        req = db.get_request(conn, request_id)
+        request_payload = _parse_payload_json(req) if req else None
+        step0 = _find_next_step(steps, current_order=None, request_payload=request_payload) or steps[0]
+        step_order = int(step0["step_order"])
+        step_key = str(step0["step_key"])
+        assignee_user_id, assignee_role = _resolve_assignee(creator, step0)
 
     db.create_task(
         conn,
         request_id,
-        step_key=step,
+        step_order=step_order,
+        step_key=step_key,
         assignee_user_id=assignee_user_id,
         assignee_role=assignee_role,
     )
-    db.add_request_event(
-        conn,
-        request_id,
-        event_type="task_created",
-        actor_user_id=None,
-        message=f"step={step}",
-    )
-
-
-def _next_step(request_type: str, current_step: str) -> str | None:
-    if request_type == "expense" and current_step == "manager":
-        return "finance"
-    return None
-
-
-def _step_assignee(step_key: str, *, creator: AuthenticatedUser) -> tuple[int | None, str | None]:
-    if step_key == "manager":
-        return (creator.manager_id, None if creator.manager_id is not None else "admin")
-    if step_key == "finance":
-        return (None, "admin")
-    return (None, "admin")
+    db.add_request_event(conn, request_id, event_type="task_created", actor_user_id=None, message=f"step={step_key}")
 
 
 def _can_act_on_task(user: AuthenticatedUser, task_row) -> bool:
@@ -573,8 +737,23 @@ def _decide_task(conn, user: AuthenticatedUser, task_id: int, *, decision: str, 
         )
         return db.get_request(conn, int(task["request_id"]))
 
-    next_step = _next_step(str(req["request_type"]), str(task["step_key"]))
-    if next_step:
+    request_type = str(req["request_type"])
+    steps = db.list_workflow_steps(conn, request_type)
+    if not steps:
+        steps = db.list_workflow_steps(conn, "generic")
+
+    current_order = task["step_order"]
+    if current_order is None:
+        current_order = None
+        for s in steps:
+            if str(s["step_key"]) == str(task["step_key"]):
+                current_order = int(s["step_order"])
+                break
+
+    request_payload = _parse_payload_json(req)
+    next_step_row = _find_next_step(steps, current_order=current_order, request_payload=request_payload)
+
+    if next_step_row is not None:
         creator_row = db.get_user_by_id(conn, int(req["user_id"]))
         creator = AuthenticatedUser(
             id=int(creator_row["id"]),
@@ -583,11 +762,12 @@ def _decide_task(conn, user: AuthenticatedUser, task_id: int, *, decision: str, 
             dept=None if creator_row["dept"] is None else str(creator_row["dept"]),
             manager_id=None if creator_row["manager_id"] is None else int(creator_row["manager_id"]),
         )
-        assignee_user_id, assignee_role = _step_assignee(next_step, creator=creator)
+        assignee_user_id, assignee_role = _resolve_assignee(creator, next_step_row)
         db.create_task(
             conn,
             int(task["request_id"]),
-            step_key=next_step,
+            step_order=int(next_step_row["step_order"]),
+            step_key=str(next_step_row["step_key"]),
             assignee_user_id=assignee_user_id,
             assignee_role=assignee_role,
         )
@@ -596,7 +776,7 @@ def _decide_task(conn, user: AuthenticatedUser, task_id: int, *, decision: str, 
             int(task["request_id"]),
             event_type="task_created",
             actor_user_id=None,
-            message=f"step={next_step}",
+            message=f"step={next_step_row['step_key']}",
         )
         db.update_request_status(conn, int(task["request_id"]), status="pending", decided_by=None)
         return db.get_request(conn, int(task["request_id"]))

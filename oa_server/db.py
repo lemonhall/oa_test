@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 from .auth import hash_password
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
+def _connect_raw(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
@@ -15,6 +17,19 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous=OFF")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
+
+
+@contextmanager
+def connect(db_path: Path) -> Iterator[sqlite3.Connection]:
+    conn = _connect_raw(db_path)
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -78,13 +93,37 @@ def init_db(db_path: Path) -> None:
               message TEXT,
               created_at INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS workflow_definitions (
+              request_type TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              enabled INTEGER NOT NULL,
+              created_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS workflow_steps (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              request_type TEXT NOT NULL REFERENCES workflow_definitions(request_type) ON DELETE CASCADE,
+              step_order INTEGER NOT NULL,
+              step_key TEXT NOT NULL,
+              assignee_kind TEXT NOT NULL,
+              assignee_value TEXT,
+              condition_kind TEXT,
+              condition_value TEXT,
+              created_at INTEGER NOT NULL,
+              UNIQUE(request_type, step_order)
+            );
             """
         )
 
         _ensure_column(conn, "users", "dept", "TEXT")
         _ensure_column(conn, "users", "manager_id", "INTEGER")
         _ensure_column(conn, "requests", "request_type", "TEXT NOT NULL DEFAULT 'generic'")
+        _ensure_column(conn, "requests", "payload_json", "TEXT")
         _ensure_column(conn, "requests", "updated_at", "INTEGER")
+        _ensure_column(conn, "tasks", "step_order", "INTEGER")
+        _ensure_column(conn, "workflow_steps", "condition_kind", "TEXT")
+        _ensure_column(conn, "workflow_steps", "condition_value", "TEXT")
 
         existing = conn.execute("SELECT COUNT(1) AS c FROM users").fetchone()["c"]
         if existing == 0:
@@ -106,6 +145,9 @@ def init_db(db_path: Path) -> None:
                     "UPDATE users SET manager_id=? WHERE username='user' AND (manager_id IS NULL OR manager_id='')",
                     (int(admin["id"]),),
                 )
+
+        ensure_default_workflows(conn)
+        migrate_workflows(conn)
 
 
 def get_user_by_username(conn: sqlite3.Connection, username: str):
@@ -164,18 +206,29 @@ def get_session_with_user(conn: sqlite3.Connection, token: str):
     ).fetchone()
 
 
-def create_request(conn: sqlite3.Connection, user_id: int, request_type: str, title: str, body: str) -> int:
+def create_request(
+    conn: sqlite3.Connection,
+    user_id: int,
+    request_type: str,
+    title: str,
+    body: str,
+    *,
+    payload_json: str | None,
+) -> int:
     now = int(time.time())
     cur = conn.execute(
         "INSERT INTO requests(user_id,request_type,title,body,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
         (user_id, request_type, title, body, "pending", now, now),
     )
+    if payload_json is not None:
+        conn.execute("UPDATE requests SET payload_json=? WHERE id=?", (payload_json, int(cur.lastrowid)))
     return int(cur.lastrowid)
 
 def create_task(
     conn: sqlite3.Connection,
     request_id: int,
     *,
+    step_order: int | None,
     step_key: str,
     assignee_user_id: int | None,
     assignee_role: str | None,
@@ -183,10 +236,10 @@ def create_task(
     now = int(time.time())
     cur = conn.execute(
         """
-        INSERT INTO tasks(request_id,step_key,assignee_user_id,assignee_role,status,created_at)
-        VALUES(?,?,?,?,?,?)
+        INSERT INTO tasks(request_id,step_order,step_key,assignee_user_id,assignee_role,status,created_at)
+        VALUES(?,?,?,?,?,?,?)
         """,
-        (request_id, step_key, assignee_user_id, assignee_role, "pending", now),
+        (request_id, step_order, step_key, assignee_user_id, assignee_role, "pending", now),
     )
     return int(cur.lastrowid)
 
@@ -242,10 +295,153 @@ def list_request_tasks(conn: sqlite3.Connection, request_id: int):
         LEFT JOIN users au ON au.id = t.assignee_user_id
         LEFT JOIN users du ON du.id = t.decided_by
         WHERE t.request_id = ?
-        ORDER BY t.id ASC
+        ORDER BY COALESCE(t.step_order, t.id) ASC
         """,
         (request_id,),
     ).fetchall()
+
+
+def ensure_default_workflows(conn: sqlite3.Connection) -> None:
+    existing = conn.execute("SELECT COUNT(1) AS c FROM workflow_definitions").fetchone()["c"]
+    if int(existing) > 0:
+        return
+
+    now = int(time.time())
+    conn.execute(
+        "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
+        ("leave", "Leave Request", 1, now),
+    )
+    conn.execute(
+        "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
+        ("expense", "Expense Reimbursement", 1, now),
+    )
+    conn.execute(
+        "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
+        ("generic", "Generic Request", 1, now),
+    )
+    conn.execute(
+        "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
+        ("purchase", "Purchase Request", 1, now),
+    )
+
+    conn.executemany(
+        """
+        INSERT INTO workflow_steps(request_type,step_order,step_key,assignee_kind,assignee_value,condition_kind,condition_value,created_at)
+        VALUES(?,?,?,?,?,?,?,?)
+        """,
+        [
+            ("leave", 1, "manager", "manager", None, None, None, now),
+            ("expense", 1, "manager", "manager", None, None, None, now),
+            ("expense", 2, "gm", "role", "admin", "min_amount", "5000", now),
+            ("expense", 3, "finance", "role", "admin", None, None, now),
+            ("generic", 1, "admin", "role", "admin", None, None, now),
+            ("purchase", 1, "manager", "manager", None, None, None, now),
+            ("purchase", 2, "gm", "role", "admin", "min_amount", "20000", now),
+            ("purchase", 3, "procurement", "role", "admin", None, None, now),
+            ("purchase", 4, "finance", "role", "admin", None, None, now),
+        ],
+    )
+
+
+def migrate_workflows(conn: sqlite3.Connection) -> None:
+    # Narrow migration: upgrade legacy expense flow (manager -> finance) to support a GM threshold step:
+    # manager -> gm(min_amount=5000) -> finance
+    steps = conn.execute(
+        "SELECT step_order, step_key, condition_kind FROM workflow_steps WHERE request_type=? ORDER BY step_order ASC",
+        ("expense",),
+    ).fetchall()
+    if not steps:
+        return
+    step_keys = [str(s["step_key"]) for s in steps]
+    if "gm" in step_keys:
+        return
+    if step_keys != ["manager", "finance"]:
+        return
+    if any(s["condition_kind"] is not None for s in steps):
+        return
+
+    now = int(time.time())
+    conn.execute(
+        "UPDATE workflow_steps SET step_order=3 WHERE request_type=? AND step_order=2 AND step_key='finance'",
+        ("expense",),
+    )
+    conn.execute(
+        """
+        INSERT INTO workflow_steps(
+          request_type,step_order,step_key,assignee_kind,assignee_value,condition_kind,condition_value,created_at
+        )
+        VALUES(?,?,?,?,?,?,?,?)
+        """,
+        ("expense", 2, "gm", "role", "admin", "min_amount", "5000", now),
+    )
+
+    # Ensure purchase workflow exists for older DBs.
+    has_purchase = conn.execute(
+        "SELECT 1 FROM workflow_definitions WHERE request_type=? LIMIT 1",
+        ("purchase",),
+    ).fetchone()
+    if not has_purchase:
+        conn.execute(
+            "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
+            ("purchase", "Purchase Request", 1, now),
+        )
+        conn.executemany(
+            """
+            INSERT INTO workflow_steps(
+              request_type,step_order,step_key,assignee_kind,assignee_value,condition_kind,condition_value,created_at
+            )
+            VALUES(?,?,?,?,?,?,?,?)
+            """,
+            [
+                ("purchase", 1, "manager", "manager", None, None, None, now),
+                ("purchase", 2, "gm", "role", "admin", "min_amount", "20000", now),
+                ("purchase", 3, "procurement", "role", "admin", None, None, now),
+                ("purchase", 4, "finance", "role", "admin", None, None, now),
+            ],
+        )
+
+
+def list_workflows(conn: sqlite3.Connection):
+    return conn.execute("SELECT * FROM workflow_definitions ORDER BY request_type ASC").fetchall()
+
+
+def list_workflow_steps(conn: sqlite3.Connection, request_type: str):
+    return conn.execute(
+        "SELECT * FROM workflow_steps WHERE request_type = ? ORDER BY step_order ASC",
+        (request_type,),
+    ).fetchall()
+
+
+def replace_workflow_steps(conn: sqlite3.Connection, request_type: str, *, name: str | None, enabled: bool, steps: list[dict]):
+    now = int(time.time())
+    conn.execute(
+        """
+        INSERT INTO workflow_definitions(request_type,name,enabled,created_at)
+        VALUES(?,?,?,?)
+        ON CONFLICT(request_type) DO UPDATE SET name=excluded.name, enabled=excluded.enabled
+        """,
+        (request_type, name or request_type, 1 if enabled else 0, now),
+    )
+    conn.execute("DELETE FROM workflow_steps WHERE request_type = ?", (request_type,))
+    for s in steps:
+        conn.execute(
+            """
+            INSERT INTO workflow_steps(
+              request_type,step_order,step_key,assignee_kind,assignee_value,condition_kind,condition_value,created_at
+            )
+            VALUES(?,?,?,?,?,?,?,?)
+            """,
+            (
+                request_type,
+                int(s["step_order"]),
+                str(s["step_key"]),
+                str(s["assignee_kind"]),
+                None if s.get("assignee_value") is None else str(s["assignee_value"]),
+                None if s.get("condition_kind") is None else str(s.get("condition_kind")),
+                None if s.get("condition_value") is None else str(s.get("condition_value")),
+                now,
+            ),
+        )
 
 
 def add_request_event(

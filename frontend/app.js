@@ -38,11 +38,19 @@ function statusText(status) {
 }
 
 function typeText(t) {
-  return t === "leave" ? "请假" : t === "expense" ? "报销" : "通用";
+  return t === "leave" ? "请假" : t === "expense" ? "报销" : t === "purchase" ? "采购" : "通用";
 }
 
 function stepText(step) {
-  return step === "manager" ? "直属领导审批" : step === "finance" ? "财务审批" : "管理员审批";
+  return step === "manager"
+    ? "直属领导审批"
+    : step === "gm"
+    ? "总经理审批"
+    : step === "finance"
+    ? "财务审批"
+    : step === "procurement"
+    ? "采购审批"
+    : "管理员审批";
 }
 
 let currentMe = null;
@@ -58,6 +66,12 @@ function setTab(tab) {
   if (tab === "requests") refreshRequests();
   if (tab === "inbox") refreshInbox();
   if (tab === "users") refreshUsers();
+}
+
+function showCreateFields(type) {
+  $("#leaveFields").hidden = type !== "leave";
+  $("#expenseFields").hidden = type !== "expense";
+  $("#purchaseFields").hidden = type !== "purchase";
 }
 
 async function refreshMe() {
@@ -176,6 +190,29 @@ function renderRequests(list, items) {
         const tasks = data.tasks || [];
         const events = data.events || [];
         const lines = [];
+        const payload = data.request?.payload || null;
+        if (payload) {
+          lines.push("表单：");
+          if (data.request.type === "leave") {
+            lines.push(`- 开始：${payload.start_date}`);
+            lines.push(`- 结束：${payload.end_date}`);
+            lines.push(`- 天数：${payload.days}`);
+            lines.push(`- 原因：${payload.reason}`);
+          } else if (data.request.type === "expense") {
+            lines.push(`- 类别：${payload.category || ""}`);
+            lines.push(`- 金额：${payload.amount}`);
+            if (payload.reason) lines.push(`- 说明：${payload.reason}`);
+          } else if (data.request.type === "purchase") {
+            lines.push(`- 金额：${payload.amount}`);
+            if (payload.items?.length) {
+              for (const it of payload.items) {
+                lines.push(`- 物品：${it.name} ×${it.qty} 单价${it.unit_price} 小计${it.line_total}`);
+              }
+            }
+            if (payload.reason) lines.push(`- 原因：${payload.reason}`);
+          }
+          lines.push("");
+        }
         lines.push("流程：");
         for (const t of tasks) {
           lines.push(
@@ -432,19 +469,73 @@ $("#refreshInboxBtn").onclick = refreshInbox;
 $("#refreshUsersBtn").onclick = refreshUsers;
 $("#scopeAll").onchange = refreshRequests;
 
+$("#reqType").onchange = () => {
+  showCreateFields($("#reqType").value);
+};
+
 $("#createBtn").onclick = async () => {
   setError($("#createError"), "");
   const type = $("#reqType").value;
-  const title = $("#reqTitle").value.trim();
-  const body = $("#reqBody").value.trim();
-  if (!title || !body) {
-    setError($("#createError"), "标题和内容不能为空");
-    return;
+  let title = $("#reqTitle").value.trim();
+  let body = $("#reqBody").value.trim();
+  let payload = null;
+
+  if (type === "leave") {
+    const start_date = $("#leaveStart").value;
+    const end_date = $("#leaveEnd").value;
+    const days = Number($("#leaveDays").value || 0);
+    const reason = $("#leaveReason").value.trim();
+    if (!start_date || !end_date || !days || !reason) {
+      setError($("#createError"), "请假需要填写开始/结束/天数/原因");
+      return;
+    }
+    payload = { start_date, end_date, days, reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "expense") {
+    const category = $("#expenseCategory").value.trim();
+    const amount = Number($("#expenseAmount").value || 0);
+    const reason = $("#expenseReason").value.trim();
+    if (!amount || amount <= 0) {
+      setError($("#createError"), "报销金额必须大于 0");
+      return;
+    }
+    payload = { category, amount, reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "purchase") {
+    const name = $("#purchaseItemName").value.trim();
+    const qty = Number($("#purchaseQty").value || 0);
+    const unit_price = Number($("#purchaseUnitPrice").value || 0);
+    const reason = $("#purchaseReason").value.trim();
+    if (!name || !qty || qty <= 0 || !unit_price || unit_price <= 0 || !reason) {
+      setError($("#createError"), "采购需要填写物品名称/数量/单价/原因");
+      return;
+    }
+    const amount = qty * unit_price;
+    payload = { items: [{ name, qty, unit_price }], reason, amount };
+    title = title || "";
+    body = body || "";
+  } else {
+    if (!title || !body) {
+      setError($("#createError"), "标题和内容不能为空");
+      return;
+    }
   }
+
   try {
-    await api("/api/requests", { method: "POST", body: { type, title, body } });
+    await api("/api/requests", { method: "POST", body: { type, title, body, payload } });
     $("#reqTitle").value = "";
     $("#reqBody").value = "";
+    $("#leaveReason").value = "";
+    $("#leaveDays").value = "";
+    $("#expenseCategory").value = "";
+    $("#expenseAmount").value = "";
+    $("#expenseReason").value = "";
+    $("#purchaseItemName").value = "";
+    $("#purchaseQty").value = "";
+    $("#purchaseUnitPrice").value = "";
+    $("#purchaseReason").value = "";
     currentTab = "requests";
     setTab("requests");
   } catch (e) {
@@ -452,4 +543,5 @@ $("#createBtn").onclick = async () => {
   }
 };
 
+showCreateFields($("#reqType").value);
 refreshAll();

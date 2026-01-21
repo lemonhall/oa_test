@@ -5,6 +5,7 @@ __pycache__/
 *.sqlite3-wal
 *.sqlite3-shm
 *.db
+data/
 .venv/
 .python-version
 .DS_Store
