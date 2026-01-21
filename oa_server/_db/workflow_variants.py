@@ -17,24 +17,24 @@ def _default_category_for_request_type(request_type: str) -> str:
         "job_transfer",
         "salary_adjustment",
     }:
-        return "HR/Admin"
+        return "人事 / 行政"
     if request_type in {"expense", "loan", "payment", "budget", "invoice", "fixed_asset_accounting"}:
-        return "Finance"
+        return "财务"
     if request_type in {"travel_expense"}:
-        return "Finance"
+        return "财务"
     if request_type in {"purchase", "purchase_plus", "quote_compare", "acceptance", "inventory_in", "inventory_out"}:
-        return "Procurement"
+        return "采购"
     if request_type in {"device_claim", "asset_transfer", "asset_maintenance", "asset_scrap"}:
-        return "Assets"
+        return "资产"
     if request_type in {"contract", "legal_review", "seal", "archive"}:
-        return "Contract/Legal"
+        return "合同 / 法务"
     if request_type in {"account_open", "permission", "vpn_email", "it_device"}:
-        return "IT"
+        return "IT / 权限"
     if request_type in {"meeting_room", "car", "supplies"}:
-        return "Logistics"
+        return "资源 / 后勤"
     if request_type in {"policy_announcement", "read_ack"}:
-        return "Policy/Compliance"
-    return "General"
+        return "公文 / 合规"
+    return "通用"
 
 
 def ensure_workflow_variants(conn: sqlite3.Connection) -> None:
@@ -129,7 +129,7 @@ def migrate_workflow_variants(conn: sqlite3.Connection) -> None:
             )
             VALUES(?,?,?,?,?,?,?,?,?)
             """,
-            ("purchase", "purchase", "Purchase Request", "Procurement", "global", None, 1, 1, now),
+            ("purchase", "purchase", "采购申请", "采购", "global", None, 1, 1, now),
         )
         conn.executemany(
             """
@@ -223,36 +223,88 @@ def migrate_workflow_variants(conn: sqlite3.Connection) -> None:
 
     # Ensure Contract/Legal workflows exist in v2 catalog for existing DBs.
     for rt, name, steps in [
-        ("contract", "Contract Approval", [(1, "manager", "manager", None), (2, "legal", "role", "admin"), (3, "admin", "role", "admin")]),
-        ("legal_review", "Legal Review", [(1, "legal", "role", "admin"), (2, "admin", "role", "admin")]),
-        ("seal", "Seal Application", [(1, "legal", "role", "admin"), (2, "admin", "role", "admin")]),
-        ("archive", "Archive", [(1, "admin", "role", "admin")]),
+        ("contract", "合同审批", [(1, "manager", "manager", None), (2, "legal", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("legal_review", "法务审查", [(1, "legal", "role", "admin"), (2, "admin", "role", "admin")]),
+        ("seal", "用章申请", [(1, "legal", "role", "admin"), (2, "admin", "role", "admin")]),
+        ("archive", "归档申请", [(1, "admin", "role", "admin")]),
     ]:
         _ensure_variant_workflow(rt, rt, name, steps)
 
     # Ensure IT/Access workflows exist in v2 catalog for existing DBs.
     for rt, name, steps in [
-        ("account_open", "Account Open", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
-        ("permission", "Access Request", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
-        ("vpn_email", "VPN/Email Open", [(1, "it", "role", "admin"), (2, "admin", "role", "admin")]),
-        ("it_device", "IT Device Request", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("account_open", "账号开通", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("permission", "系统权限申请", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("vpn_email", "VPN/邮箱开通", [(1, "it", "role", "admin"), (2, "admin", "role", "admin")]),
+        ("it_device", "IT设备申请", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
     ]:
         _ensure_variant_workflow(rt, rt, name, steps)
 
     # Ensure Logistics workflows exist in v2 catalog for existing DBs.
     for rt, name, steps in [
-        ("meeting_room", "Meeting Room Booking", [(1, "admin", "role", "admin")]),
-        ("car", "Car Request", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
-        ("supplies", "Supplies Request", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
+        ("meeting_room", "会议室预定", [(1, "admin", "role", "admin")]),
+        ("car", "用车申请", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
+        ("supplies", "物品领用", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
     ]:
         _ensure_variant_workflow(rt, rt, name, steps)
 
     # Ensure Policy/Compliance workflows exist in v2 catalog for existing DBs.
     for rt, name, steps in [
-        ("policy_announcement", "Policy Announcement", [(1, "admin", "role", "admin")]),
-        ("read_ack", "Read Acknowledgement", [(1, "ack", "users_all", "all")]),
+        ("policy_announcement", "制度/公告发布", [(1, "admin", "role", "admin")]),
+        ("read_ack", "阅读确认", [(1, "ack", "users_all", "all")]),
     ]:
         _ensure_variant_workflow(rt, rt, name, steps)
+
+    # Localize common legacy English category/name values for existing DBs.
+    conn.execute(
+        """
+        UPDATE workflow_variants
+        SET category=CASE category
+          WHEN 'HR/Admin' THEN '人事 / 行政'
+          WHEN 'Finance' THEN '财务'
+          WHEN 'Procurement' THEN '采购'
+          WHEN 'Assets' THEN '资产'
+          WHEN 'Contract/Legal' THEN '合同 / 法务'
+          WHEN 'IT' THEN 'IT / 权限'
+          WHEN 'Logistics' THEN '资源 / 后勤'
+          WHEN 'Policy/Compliance' THEN '公文 / 合规'
+          WHEN 'General' THEN '通用'
+          ELSE category
+        END
+        WHERE category IN ('HR/Admin','Finance','Procurement','Assets','Contract/Legal','IT','Logistics','Policy/Compliance','General')
+        """,
+    )
+    conn.execute(
+        """
+        UPDATE workflow_variants
+        SET name=CASE workflow_key
+          WHEN 'leave' THEN '请假申请'
+          WHEN 'expense' THEN '费用报销'
+          WHEN 'generic' THEN '通用申请'
+          WHEN 'purchase' THEN '采购申请'
+          WHEN 'contract' THEN '合同审批'
+          WHEN 'legal_review' THEN '法务审查'
+          WHEN 'seal' THEN '用章申请'
+          WHEN 'archive' THEN '归档申请'
+          WHEN 'account_open' THEN '账号开通'
+          WHEN 'permission' THEN '系统权限申请'
+          WHEN 'vpn_email' THEN 'VPN/邮箱开通'
+          WHEN 'it_device' THEN 'IT设备申请'
+          WHEN 'meeting_room' THEN '会议室预定'
+          WHEN 'car' THEN '用车申请'
+          WHEN 'supplies' THEN '物品领用'
+          WHEN 'policy_announcement' THEN '制度/公告发布'
+          WHEN 'read_ack' THEN '阅读确认'
+          ELSE name
+        END
+        WHERE name IN (
+          'Leave Request','Expense Reimbursement','Generic Request','Purchase Request',
+          'Contract Approval','Legal Review','Seal Application','Archive',
+          'Account Open','Access Request','VPN/Email Open','IT Device Request',
+          'Meeting Room Booking','Car Request','Supplies Request',
+          'Policy Announcement','Read Acknowledgement'
+        )
+        """,
+    )
 
 
 def list_workflows(conn: sqlite3.Connection):
@@ -493,4 +545,3 @@ def list_workflow_variant_steps(conn: sqlite3.Connection, workflow_key: str):
         "SELECT * FROM workflow_variant_steps WHERE workflow_key = ? ORDER BY step_order ASC",
         (workflow_key,),
     ).fetchall()
-

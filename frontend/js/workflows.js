@@ -55,7 +55,7 @@ function showCreateFields(type) {
 function groupWorkflows(items) {
   const groups = new Map();
   for (const w of items) {
-    const cat = w.category || "Other";
+    const cat = categoryText(w.category || "Other");
     if (!groups.has(cat)) groups.set(cat, []);
     groups.get(cat).push(w);
   }
@@ -64,7 +64,7 @@ function groupWorkflows(items) {
 
 function optionLabel(w) {
   const scope = w.scope_kind === "dept" ? `部门：${w.scope_value}` : "公司通用";
-  return `${w.name}（${scope}）`;
+  return `${workflowNameFromVariant(w)}（${scope}）`;
 }
 
 async function loadWorkflows() {
@@ -97,7 +97,8 @@ function onWorkflowChanged() {
   const sel = $("#workflowKey");
   const wf = workflowsByKey[sel.value];
   if (!wf) return;
-  $("#workflowHint").textContent = `${wf.category} / ${wf.request_type} / ${wf.key}`;
+  const cat = categoryText(wf.category);
+  const name = workflowNameFromVariant(wf);
+  $("#workflowHint").textContent = `类别：${cat} · 流程：${name}`;
   showCreateFields(wf.request_type);
 }
-

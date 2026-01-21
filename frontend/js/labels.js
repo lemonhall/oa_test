@@ -66,3 +66,75 @@ function stepText(step) {
     : "审批";
 }
 
+function _hasCjk(s) {
+  return /[\u4E00-\u9FFF]/.test(String(s || ""));
+}
+
+function roleText(role) {
+  if (role === "admin") return "管理员";
+  if (role === "user") return "普通用户";
+  return role || "";
+}
+
+function categoryText(cat) {
+  const c = String(cat || "").trim();
+  if (!c) return "其他";
+  if (_hasCjk(c)) return c;
+  const map = {
+    "HR/Admin": "人事 / 行政",
+    Finance: "财务",
+    Procurement: "采购",
+    Assets: "资产",
+    "Contract/Legal": "合同 / 法务",
+    IT: "IT / 权限",
+    Logistics: "资源 / 后勤",
+    "Policy/Compliance": "公文 / 合规",
+    General: "通用",
+    Other: "其他",
+  };
+  return map[c] || c;
+}
+
+function workflowNameFromVariant(w) {
+  const name = String(w?.name || "").trim();
+  if (name && _hasCjk(name)) return name;
+  const t = typeText(w?.request_type);
+  if (t && t !== "通用") return `${t}申请`;
+  return name || String(w?.key || "").trim() || "通用申请";
+}
+
+function workflowNameFromRequestWorkflow(wf) {
+  const name = String(wf?.name || "").trim();
+  if (name && _hasCjk(name)) return name;
+  const key = String(wf?.key || "").trim();
+  const t = typeText(key);
+  if (t && t !== "通用") return `${t}申请`;
+  return name || key || "通用申请";
+}
+
+function eventTypeText(t) {
+  const key = String(t || "").trim();
+  const map = {
+    created: "创建申请",
+    task_created: "生成待办",
+    task_decided: "审批完成",
+    task_transferred: "转交待办",
+    task_addsigned: "加签",
+    task_returned: "退回修改",
+    changes_requested: "要求修改",
+    resubmitted: "重新提交",
+    withdrawn: "撤回",
+    voided: "作废",
+    request_approved: "申请通过",
+    request_rejected: "申请驳回",
+  };
+  return map[key] || key || "事件";
+}
+
+function cleanMessage(message) {
+  const m = String(message || "").trim();
+  if (!m) return "";
+  // Hide internal "key=value" traces from end users.
+  if (/[a-z_]+=/.test(m)) return "";
+  return m;
+}

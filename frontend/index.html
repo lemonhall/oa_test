@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>OA Demo</title>
+    <title>OA 系统演示</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <header class="topbar">
-      <div class="brand">OA Demo</div>
+      <div class="brand">OA 系统演示</div>
       <div class="spacer"></div>
       <div id="whoami" class="muted"></div>
       <button id="logoutBtn" class="btn btn-secondary" hidden>退出</button>
@@ -998,12 +998,12 @@
 
             <div class="row" style="gap: 12px; align-items: flex-end">
               <label style="width: 220px">
-                <div class="label">workflow_key</div>
+                <div class="label">流程标识</div>
                 <input id="wfKey" placeholder="例如：purchase_it" />
               </label>
               <label style="width: 160px">
-                <div class="label">request_type</div>
-                <input id="wfType" placeholder="purchase/expense/leave" />
+                <div class="label">申请类型</div>
+                <input id="wfType" placeholder="例如：leave（请假）/expense（报销）/purchase（采购）" />
               </label>
               <label style="flex: 1">
                 <div class="label">名称</div>
@@ -1014,18 +1014,18 @@
             <div class="row" style="gap: 12px; align-items: flex-end">
               <label style="width: 200px">
                 <div class="label">类别</div>
-                <input id="wfCategory" placeholder="Procurement/Finance/HR" />
+                <input id="wfCategory" placeholder="例如：采购/财务/人事/通用" />
               </label>
               <label style="width: 160px">
-                <div class="label">scope_kind</div>
+                <div class="label">适用范围</div>
                 <select id="wfScopeKind">
-                  <option value="global">global</option>
-                  <option value="dept">dept</option>
+                  <option value="global">公司通用</option>
+                  <option value="dept">按部门</option>
                 </select>
               </label>
               <label style="width: 200px">
-                <div class="label">scope_value</div>
-                <input id="wfScopeValue" placeholder="dept 名称，例如 IT" />
+                <div class="label">范围值</div>
+                <input id="wfScopeValue" placeholder="部门名称，例如：IT" />
               </label>
               <label class="row muted" style="gap: 6px">
                 <input id="wfEnabled" type="checkbox" checked />
@@ -1044,7 +1044,7 @@
                   <button id="wfAddStepBtn" class="btn btn-secondary" type="button">添加步骤</button>
                   <button id="wfShowJsonBtn" class="btn btn-secondary" type="button">查看/编辑 JSON</button>
                   <div class="muted" style="font-size: 13px">
-                    提示：可拖拽用“上移/下移”，会签用 assignee_kind=users_all/users_any（value 可用 all 或用户ID列表）。
+                    提示：可用“上移/下移”调整顺序；会签请选“会签（全部通过/任一通过）”；全员可点“全员”按钮或把指派值填为 all。
                   </div>
                 </div>
 
@@ -1069,7 +1069,7 @@
                     <textarea id="wfStepsJson" rows="10" spellcheck="false"></textarea>
                     <div class="row" style="gap: 10px">
                       <button id="wfApplyJsonBtn" class="btn btn-secondary" type="button">从 JSON 应用到编辑器</button>
-                      <div class="muted" style="font-size: 13px">格式：数组，每项含 step_key/assignee_kind/assignee_value/condition_kind/condition_value</div>
+                      <div class="muted" style="font-size: 13px">格式：数组；每项包含：步骤标识、指派类型、指派值、条件类型、条件值</div>
                     </div>
                   </div>
                 </details>
@@ -1082,7 +1082,7 @@
               <div id="wfMsg" class="muted" style="font-size: 13px"></div>
               <div class="spacer"></div>
               <div class="muted" style="font-size: 13px">
-                提示：全局默认用 key=请求类型（如 expense）；部门变体建议用 purchase_it / expense_fin 等。
+                提示：全局默认建议用“标识=申请类型”（如 expense）；部门变体可用 purchase_it / expense_fin 等。
               </div>
             </div>
           </div>

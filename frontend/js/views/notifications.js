@@ -24,7 +24,7 @@ function renderNotifications(list, items) {
     title.className = "item-title";
     const rid = n.request_id ? `#${n.request_id}` : "";
     const who = n.actor_username ? `（${n.actor_username}）` : "";
-    title.textContent = `${n.event_type}${who} ${rid}`.trim();
+    title.textContent = `${eventTypeText(n.event_type)}${who} ${rid}`.trim();
 
     const spacer = document.createElement("div");
     spacer.className = "spacer";
@@ -52,7 +52,7 @@ function renderNotifications(list, items) {
 
     const body = document.createElement("div");
     body.className = "item-body";
-    body.textContent = n.message || "";
+    body.textContent = cleanMessage(n.message) || "";
     el.appendChild(body);
 
     const meta = document.createElement("div");
@@ -63,4 +63,3 @@ function renderNotifications(list, items) {
     list.appendChild(el);
   }
 }
-

@@ -11,7 +11,7 @@ async function refreshAll() {
   $("#loginView").hidden = true;
   $("#appView").hidden = false;
   $("#logoutBtn").hidden = false;
-  $("#whoami").textContent = `当前：${currentMe.username}（${currentMe.role}）`;
+  $("#whoami").textContent = `当前：${currentMe.username}（${roleText(currentMe.role)}）`;
 
   $("#usersTabBtn").hidden = !hasPerm("users:manage");
   $("#rolesTabBtn").hidden = !hasPerm("rbac:manage");
@@ -23,4 +23,3 @@ async function refreshAll() {
   }
   setTab(currentTab);
 }
-

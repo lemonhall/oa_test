@@ -7,8 +7,11 @@ async function refreshAdminWorkflows() {
   for (const w of adminWorkflows) {
     const opt = document.createElement("option");
     opt.value = w.key;
-    const scope = w.scope_kind === "dept" ? `dept:${w.scope_value}` : "global";
-    opt.textContent = `${w.category} / ${w.request_type} / ${w.name} (${scope})`;
+    const scope = w.scope_kind === "dept" ? `部门：${w.scope_value}` : "公司通用";
+    const cat = categoryText(w.category);
+    const type = typeText(w.request_type);
+    const name = workflowNameFromVariant(w);
+    opt.textContent = `【${cat}】${name}（${type}，${scope}，标识：${w.key}）`;
     sel.appendChild(opt);
   }
   if (adminWorkflows.length) {
@@ -57,7 +60,7 @@ async function saveAdminWorkflow() {
   const workflow_key = $("#wfKey").value.trim();
   const request_type = $("#wfType").value.trim();
   const name = $("#wfName").value.trim();
-  const category = $("#wfCategory").value.trim() || "General";
+  const category = $("#wfCategory").value.trim() || "通用";
   const scope_kind = $("#wfScopeKind").value;
   const scope_value = $("#wfScopeValue").value.trim() || null;
   const enabled = $("#wfEnabled").checked;
@@ -93,7 +96,7 @@ async function saveAdminWorkflow() {
 async function deleteAdminWorkflow() {
   const workflow_key = $("#wfKey").value.trim();
   if (!workflow_key) return;
-  if (!confirm(`确认删除 ${workflow_key} ?`)) return;
+  if (!confirm(`确认删除流程（标识：${workflow_key}）？`)) return;
   try {
     await api("/api/admin/workflows/delete", { method: "POST", body: { workflow_key } });
     $("#wfMsg").textContent = "已删除";
@@ -103,4 +106,3 @@ async function deleteAdminWorkflow() {
     $("#wfMsg").textContent = e.code || "删除失败";
   }
 }
-

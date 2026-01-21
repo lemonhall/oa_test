@@ -27,7 +27,7 @@ function renderRequests(list, items) {
 
     const wfBadge = document.createElement("span");
     wfBadge.className = "badge";
-    wfBadge.textContent = item.workflow?.name || item.workflow?.key || "";
+    wfBadge.textContent = item.workflow ? workflowNameFromRequestWorkflow(item.workflow) : "";
 
     const title = document.createElement("div");
     title.className = "item-title";
@@ -64,7 +64,7 @@ function renderRequests(list, items) {
     if (item.pending_task) {
       const a =
         item.pending_task.assignee_username ||
-        (item.pending_task.assignee_role ? `角色：${item.pending_task.assignee_role}` : "-");
+        (item.pending_task.assignee_role ? `角色：${roleText(item.pending_task.assignee_role)}` : "-");
       meta.textContent += ` · 当前：${stepText(item.pending_task.step_key)}（${a}）`;
     }
     if (item.decided_at) {
@@ -115,7 +115,7 @@ function renderRequests(list, items) {
         lines.push("流程：");
         for (const t of tasks) {
           lines.push(
-            `- ${stepText(t.step_key)}：${t.status}${
+            `- ${stepText(t.step_key)}：${statusText(t.status)}${
               t.decided_at ? `（${fmtTime(t.decided_at)} ${t.decided_by_username || ""}）` : ""
             }${t.comment ? ` · ${t.comment}` : ""}`
           );
@@ -125,7 +125,8 @@ function renderRequests(list, items) {
           lines.push("事件：");
           for (const e of events) {
             const who = e.actor_username || "系统";
-            lines.push(`- ${fmtTime(e.created_at)} ${who} ${e.event_type}${e.message ? ` · ${e.message}` : ""}`);
+            const msg = cleanMessage(e.message);
+            lines.push(`- ${fmtTime(e.created_at)} ${who} ${eventTypeText(e.event_type)}${msg ? ` · ${msg}` : ""}`);
           }
         }
         detailWrap.textContent = lines.join("\n");
@@ -137,4 +138,3 @@ function renderRequests(list, items) {
     list.appendChild(el);
   }
 }
-

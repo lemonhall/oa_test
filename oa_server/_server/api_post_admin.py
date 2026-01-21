@@ -13,7 +13,7 @@ def try_handle(handler, path: str, query: str) -> bool:
         workflow_key = str(payload.get("workflow_key", "")).strip()
         request_type = str(payload.get("request_type", "")).strip()
         name = str(payload.get("name", "")).strip()
-        category = str(payload.get("category", "")).strip() or "General"
+        category = str(payload.get("category", "")).strip() or "通用"
         scope_kind = str(payload.get("scope_kind", "global")).strip() or "global"
         scope_value = payload.get("scope_value", None)
         scope_value_s = None if scope_value in (None, "") else str(scope_value).strip()
@@ -102,4 +102,3 @@ def try_handle(handler, path: str, query: str) -> bool:
         return True
 
     return False
-

@@ -12,19 +12,19 @@ def ensure_default_workflows(conn: sqlite3.Connection) -> None:
     now = int(time.time())
     conn.execute(
         "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
-        ("leave", "Leave Request", 1, now),
+        ("leave", "请假申请", 1, now),
     )
     conn.execute(
         "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
-        ("expense", "Expense Reimbursement", 1, now),
+        ("expense", "费用报销", 1, now),
     )
     conn.execute(
         "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
-        ("generic", "Generic Request", 1, now),
+        ("generic", "通用申请", 1, now),
     )
     conn.execute(
         "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
-        ("purchase", "Purchase Request", 1, now),
+        ("purchase", "采购申请", 1, now),
     )
     for rt, name in [
         ("overtime", "加班申请"),
@@ -51,19 +51,19 @@ def ensure_default_workflows(conn: sqlite3.Connection) -> None:
         ("asset_transfer", "资产调拨"),
         ("asset_maintenance", "资产维修"),
         ("asset_scrap", "资产报废"),
-        ("contract", "Contract Approval"),
-        ("legal_review", "Legal Review"),
-        ("seal", "Seal Application"),
-        ("archive", "Archive"),
-        ("account_open", "Account Open"),
-        ("permission", "Access Request"),
-        ("vpn_email", "VPN/Email Open"),
-        ("it_device", "IT Device Request"),
-        ("meeting_room", "Meeting Room Booking"),
-        ("car", "Car Request"),
-        ("supplies", "Supplies Request"),
-        ("policy_announcement", "Policy Announcement"),
-        ("read_ack", "Read Acknowledgement"),
+        ("contract", "合同审批"),
+        ("legal_review", "法务审查"),
+        ("seal", "用章申请"),
+        ("archive", "归档申请"),
+        ("account_open", "账号开通"),
+        ("permission", "系统权限申请"),
+        ("vpn_email", "VPN/邮箱开通"),
+        ("it_device", "IT设备申请"),
+        ("meeting_room", "会议室预定"),
+        ("car", "用车申请"),
+        ("supplies", "物品领用"),
+        ("policy_announcement", "制度/公告发布"),
+        ("read_ack", "阅读确认"),
     ]:
         conn.execute(
             "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
@@ -222,7 +222,7 @@ def migrate_workflows(conn: sqlite3.Connection) -> None:
     if not has_purchase:
         conn.execute(
             "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
-            ("purchase", "Purchase Request", 1, now),
+            ("purchase", "采购申请", 1, now),
         )
         conn.executemany(
             """
@@ -278,6 +278,40 @@ def migrate_workflows(conn: sqlite3.Connection) -> None:
     ]:
         _ensure_legacy_workflow(rt, name, steps)
 
+    # Localize a few legacy English workflow names for existing DBs.
+    conn.execute(
+        """
+        UPDATE workflow_definitions
+        SET name=CASE request_type
+          WHEN 'leave' THEN '请假申请'
+          WHEN 'expense' THEN '费用报销'
+          WHEN 'generic' THEN '通用申请'
+          WHEN 'purchase' THEN '采购申请'
+          WHEN 'contract' THEN '合同审批'
+          WHEN 'legal_review' THEN '法务审查'
+          WHEN 'seal' THEN '用章申请'
+          WHEN 'archive' THEN '归档申请'
+          WHEN 'account_open' THEN '账号开通'
+          WHEN 'permission' THEN '系统权限申请'
+          WHEN 'vpn_email' THEN 'VPN/邮箱开通'
+          WHEN 'it_device' THEN 'IT设备申请'
+          WHEN 'meeting_room' THEN '会议室预定'
+          WHEN 'car' THEN '用车申请'
+          WHEN 'supplies' THEN '物品领用'
+          WHEN 'policy_announcement' THEN '制度/公告发布'
+          WHEN 'read_ack' THEN '阅读确认'
+          ELSE name
+        END
+        WHERE name IN (
+          'Leave Request','Expense Reimbursement','Generic Request','Purchase Request',
+          'Contract Approval','Legal Review','Seal Application','Archive',
+          'Account Open','Access Request','IT Device Request','Meeting Room Booking',
+          'VPN/Email Open',
+          'Car Request','Supplies Request','Policy Announcement','Read Acknowledgement'
+        )
+        """,
+    )
+
     # Ensure Finance workflow catalog exists for older DBs.
     for rt, name, steps in [
         ("loan", "借款申请", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "admin", "role", "admin")]),
@@ -304,34 +338,33 @@ def migrate_workflows(conn: sqlite3.Connection) -> None:
 
     # Ensure Contract/Legal workflow catalog exists for older DBs.
     for rt, name, steps in [
-        ("contract", "Contract Approval", [(1, "manager", "manager", None), (2, "legal", "role", "admin"), (3, "admin", "role", "admin")]),
-        ("legal_review", "Legal Review", [(1, "legal", "role", "admin"), (2, "admin", "role", "admin")]),
-        ("seal", "Seal Application", [(1, "legal", "role", "admin"), (2, "admin", "role", "admin")]),
-        ("archive", "Archive", [(1, "admin", "role", "admin")]),
+        ("contract", "合同审批", [(1, "manager", "manager", None), (2, "legal", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("legal_review", "法务审查", [(1, "legal", "role", "admin"), (2, "admin", "role", "admin")]),
+        ("seal", "用章申请", [(1, "legal", "role", "admin"), (2, "admin", "role", "admin")]),
+        ("archive", "归档申请", [(1, "admin", "role", "admin")]),
     ]:
         _ensure_legacy_workflow(rt, name, steps)
 
     # Ensure IT/Access workflow catalog exists for older DBs.
     for rt, name, steps in [
-        ("account_open", "Account Open", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
-        ("permission", "Access Request", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
-        ("vpn_email", "VPN/Email Open", [(1, "it", "role", "admin"), (2, "admin", "role", "admin")]),
-        ("it_device", "IT Device Request", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("account_open", "账号开通", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("permission", "系统权限申请", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("vpn_email", "VPN/邮箱开通", [(1, "it", "role", "admin"), (2, "admin", "role", "admin")]),
+        ("it_device", "IT设备申请", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
     ]:
         _ensure_legacy_workflow(rt, name, steps)
 
     # Ensure Logistics workflow catalog exists for older DBs.
     for rt, name, steps in [
-        ("meeting_room", "Meeting Room Booking", [(1, "admin", "role", "admin")]),
-        ("car", "Car Request", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
-        ("supplies", "Supplies Request", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
+        ("meeting_room", "会议室预定", [(1, "admin", "role", "admin")]),
+        ("car", "用车申请", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
+        ("supplies", "物品领用", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
     ]:
         _ensure_legacy_workflow(rt, name, steps)
 
     # Ensure Policy/Compliance workflow catalog exists for older DBs.
     for rt, name, steps in [
-        ("policy_announcement", "Policy Announcement", [(1, "admin", "role", "admin")]),
-        ("read_ack", "Read Acknowledgement", [(1, "ack", "users_all", "all")]),
+        ("policy_announcement", "制度/公告发布", [(1, "admin", "role", "admin")]),
+        ("read_ack", "阅读确认", [(1, "ack", "users_all", "all")]),
     ]:
         _ensure_legacy_workflow(rt, name, steps)
-

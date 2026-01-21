@@ -28,16 +28,16 @@ function renderWfStepsEditor(steps) {
   header.style.fontSize = "13px";
   header.style.marginBottom = "8px";
   header.innerHTML =
-    '<div style="width:80px">顺序</div><div style="width:160px">step_key</div><div style="width:170px">assignee_kind</div><div style="flex:1">assignee_value</div><div style="width:160px">condition_kind</div><div style="flex:1">condition_value</div><div style="width:90px">操作</div>';
+    '<div style="width:80px">顺序</div><div style="width:160px">步骤标识</div><div style="width:170px">指派类型</div><div style="flex:1">指派值</div><div style="width:160px">条件类型</div><div style="flex:1">条件值</div><div style="width:90px">操作</div>';
   list.appendChild(header);
 
   const conditionOptions = [
     ["", "无"],
-    ["min_amount", "min_amount"],
-    ["max_amount", "max_amount"],
-    ["min_days", "min_days"],
-    ["dept_in", "dept_in"],
-    ["category_in", "category_in"],
+    ["min_amount", "最低金额"],
+    ["max_amount", "最高金额"],
+    ["min_days", "最少天数"],
+    ["dept_in", "部门包含"],
+    ["category_in", "类别包含"],
   ];
 
   wfStepsDraft.forEach((s, idx) => {
@@ -82,17 +82,24 @@ function renderWfStepsEditor(steps) {
 
     const stepKey = document.createElement("input");
     stepKey.style.width = "160px";
-    stepKey.placeholder = "例如：admin/manager";
+    stepKey.placeholder = "例如：admin/manager/finance";
     stepKey.setAttribute("list", "wfStepKeyList");
     stepKey.value = s.step_key || "";
     stepKey.oninput = () => (wfStepsDraft[idx].step_key = stepKey.value.trim());
 
     const assigneeKind = document.createElement("select");
     assigneeKind.style.width = "170px";
-    for (const k of ["manager", "role", "user", "users_any", "users_all"]) {
+    const assigneeKinds = [
+      ["manager", "直属领导"],
+      ["role", "按角色"],
+      ["user", "指定用户"],
+      ["users_any", "会签（任一通过）"],
+      ["users_all", "会签（全部通过）"],
+    ];
+    for (const [k, label] of assigneeKinds) {
       const opt = document.createElement("option");
       opt.value = k;
-      opt.textContent = k;
+      opt.textContent = label;
       assigneeKind.appendChild(opt);
     }
     assigneeKind.value = s.assignee_kind || "role";
@@ -105,12 +112,12 @@ function renderWfStepsEditor(steps) {
     const assigneeValueWrap = document.createElement("div");
     assigneeValueWrap.style.flex = "1";
     const assigneeValue = document.createElement("input");
-    assigneeValue.placeholder = assigneeKind.value === "role" ? "role 名称，例如：admin" : "user_id 或 all 或 1,2,3";
+    assigneeValue.placeholder = assigneeKind.value === "role" ? "角色名称，例如：admin" : "用户ID / all / 1,2,3";
     assigneeValue.value = s.assignee_value == null ? "" : String(s.assignee_value);
     assigneeValue.oninput = () => (wfStepsDraft[idx].assignee_value = assigneeValue.value.trim() || null);
     if (assigneeKind.value === "manager") {
       assigneeValue.disabled = true;
-      assigneeValue.placeholder = "（manager 不需要值）";
+      assigneeValue.placeholder = "（直属领导无需填写）";
     }
     const allBtn = document.createElement("button");
     allBtn.className = "btn btn-secondary";
@@ -189,4 +196,3 @@ function readWfStepsEditor() {
       s.condition_value == null || String(s.condition_value).trim() === "" ? null : String(s.condition_value).trim(),
   }));
 }
-
