@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import mimetypes
 import os
 import time
+import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -221,10 +223,19 @@ def _read_json(handler: BaseHTTPRequestHandler) -> Any:
 
 
 class OAHTTPServer(ThreadingHTTPServer):
-    def __init__(self, server_address, RequestHandlerClass, db_path: Path, frontend_dir: Path):
+    def __init__(
+        self,
+        server_address,
+        RequestHandlerClass,
+        db_path: Path,
+        frontend_dir: Path,
+        attachments_dir: Path | None = None,
+    ):
         super().__init__(server_address, RequestHandlerClass)
         self.db_path = db_path
         self.frontend_dir = frontend_dir
+        self.attachments_dir = attachments_dir or (db_path.parent / "attachments")
+        self.attachments_dir.mkdir(parents=True, exist_ok=True)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -285,6 +296,15 @@ class Handler(BaseHTTPRequestHandler):
             raise PermissionError("not_authorized")
         return user
 
+    def _require_permission(self, permission_key: str) -> AuthenticatedUser:
+        user = self._require_user()
+        if user.role == "admin":
+            return user
+        with db.connect(self.server.db_path) as conn:
+            if not db.role_has_permission(conn, user.role, permission_key):
+                raise PermissionError("not_authorized")
+        return user
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api/"):
@@ -303,6 +323,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/me":
                 user = self._require_user()
+                with db.connect(self.server.db_path) as conn:
+                    permissions = ["*"] if user.role == "admin" else db.list_role_permissions(conn, user.role)
                 self._send_json(
                     HTTPStatus.OK,
                     {
@@ -311,6 +333,7 @@ class Handler(BaseHTTPRequestHandler):
                         "role": user.role,
                         "dept": user.dept,
                         "manager_id": user.manager_id,
+                        "permissions": permissions,
                     },
                 )
                 return
@@ -339,7 +362,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/admin/workflows":
-                self._require_admin()
+                self._require_permission("workflows:manage")
                 with db.connect(self.server.db_path) as conn:
                     rows = db.list_workflow_variants_admin(conn)
                 self._send_json(
@@ -362,8 +385,16 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
 
+            if path == "/api/admin/roles":
+                self._require_permission("rbac:manage")
+                with db.connect(self.server.db_path) as conn:
+                    roles = db.list_roles(conn)
+                    items = [{"role": str(r["name"]), "permissions": db.list_role_permissions(conn, str(r["name"]))} for r in roles]
+                self._send_json(HTTPStatus.OK, {"items": items})
+                return
+
             if path.startswith("/api/admin/workflows/"):
-                self._require_admin()
+                self._require_permission("workflows:manage")
                 workflow_key = path.split("/", 4)[-1]
                 with db.connect(self.server.db_path) as conn:
                     wf = db.get_workflow_variant(conn, workflow_key)
@@ -403,16 +434,15 @@ class Handler(BaseHTTPRequestHandler):
                 user = self._require_user()
                 params = parse_qs(query or "")
                 scope = (params.get("scope", ["default"]) or ["default"])[0]
-                if scope == "all":
-                    if user.role != "admin":
-                        raise PermissionError("not_authorized")
-                    is_admin = True
-                elif scope == "mine":
-                    is_admin = False
-                else:
-                    is_admin = user.role == "admin"
                 with db.connect(self.server.db_path) as conn:
-                    rows = db.list_requests(conn, user.id, is_admin)
+                    if scope == "all":
+                        if user.role != "admin" and not db.role_has_permission(conn, user.role, "requests:read_all"):
+                            raise PermissionError("not_authorized")
+                        rows = db.list_requests(conn, user.id, True)
+                    elif scope == "mine":
+                        rows = db.list_requests(conn, user.id, False)
+                    else:
+                        rows = db.list_requests(conn, user.id, user.role == "admin")
                 self._send_json(HTTPStatus.OK, {"items": [_row_to_request(r) for r in rows]})
                 return
 
@@ -429,12 +459,14 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     tasks = db.list_request_tasks(conn, request_id)
                     events = db.list_request_events(conn, request_id)
+                    attachments = db.list_request_attachments(conn, request_id)
                 self._send_json(
                     HTTPStatus.OK,
                     {
                         "request": _row_to_request(row),
                         "tasks": [_row_to_task(t) for t in tasks],
                         "events": [_row_to_event(e) for e in events],
+                        "attachments": [_row_to_attachment(a) for a in attachments],
                     },
                 )
                 return
@@ -446,8 +478,55 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.OK, {"items": [_row_to_inbox_task(r) for r in rows]})
                 return
 
+            if path == "/api/notifications":
+                user = self._require_user()
+                with db.connect(self.server.db_path) as conn:
+                    rows = db.list_notifications(conn, user_id=user.id)
+                self._send_json(HTTPStatus.OK, {"items": [_row_to_notification(r) for r in rows]})
+                return
+
+            if path.startswith("/api/attachments/") and path.endswith("/download"):
+                user = self._require_user()
+                attachment_id = _parse_attachment_id(path, suffix="/download")
+                with db.connect(self.server.db_path) as conn:
+                    att = db.get_attachment(conn, attachment_id)
+                    if not att:
+                        self._send_error(HTTPStatus.NOT_FOUND, "not_found")
+                        return
+                    req = db.get_request(conn, int(att["request_id"]))
+                    if not req:
+                        self._send_error(HTTPStatus.NOT_FOUND, "not_found")
+                        return
+                    if user.role != "admin" and int(req["user_id"]) != user.id:
+                        self._send_error(HTTPStatus.FORBIDDEN, "not_authorized")
+                        return
+
+                rel = Path(str(att["storage_path"]))
+                candidate = (self.server.attachments_dir / rel).resolve()
+                base_dir = self.server.attachments_dir.resolve()
+                if base_dir not in candidate.parents and candidate != base_dir:
+                    self._send_error(HTTPStatus.FORBIDDEN, "forbidden")
+                    return
+                if not candidate.exists() or not candidate.is_file():
+                    self._send_error(HTTPStatus.NOT_FOUND, "not_found")
+                    return
+
+                data = candidate.read_bytes()
+                ctype = "application/octet-stream"
+                if att["content_type"] is not None and str(att["content_type"]).strip():
+                    ctype = str(att["content_type"]).strip()
+                safe = str(att["filename"]).replace('"', "").replace("\r", "").replace("\n", "")
+
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Content-Disposition", f'attachment; filename="{safe}"')
+                self.end_headers()
+                self.wfile.write(data)
+                return
+
             if path == "/api/users":
-                user = self._require_admin()
+                user = self._require_permission("users:manage")
                 with db.connect(self.server.db_path) as conn:
                     rows = db.list_users(conn)
                 self._send_json(HTTPStatus.OK, {"items": [_row_to_user(r) for r in rows]})
@@ -688,6 +767,75 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.OK, _row_to_request(row))
                 return
 
+            if path.startswith("/api/requests/") and path.endswith("/watchers"):
+                user = self._require_user()
+                request_id = _parse_request_id(path, suffix="/watchers")
+                payload = _read_json(self) or {}
+                kind = str(payload.get("kind", "cc")).strip() or "cc"
+                user_ids = payload.get("user_ids", None)
+                if kind not in {"cc", "follow"}:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "invalid_kind")
+                    return
+                if not isinstance(user_ids, list) or not user_ids:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "missing_fields")
+                    return
+                try:
+                    parsed_user_ids = [int(x) for x in user_ids]
+                except Exception:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "invalid_user_ids")
+                    return
+                with db.connect(self.server.db_path) as conn:
+                    row = db.get_request(conn, request_id)
+                    if not row:
+                        self._send_error(HTTPStatus.NOT_FOUND, "not_found")
+                        return
+                    if user.role != "admin" and int(row["user_id"]) != user.id:
+                        self._send_error(HTTPStatus.FORBIDDEN, "not_authorized")
+                        return
+                    for uid in parsed_user_ids:
+                        if not db.get_user_by_id(conn, int(uid)):
+                            self._send_error(HTTPStatus.BAD_REQUEST, "invalid_user_id")
+                            return
+                        db.add_request_watcher(conn, request_id, int(uid), kind=kind)
+                self._send_json(HTTPStatus.CREATED, {"ok": True})
+                return
+
+            if path.startswith("/api/requests/") and path.endswith("/attachments"):
+                user = self._require_user()
+                request_id = _parse_request_id(path, suffix="/attachments")
+                payload = _read_json(self) or {}
+                filename = str(payload.get("filename", "")).strip()
+                content_type = payload.get("content_type", None)
+                content_type_s = None if content_type in (None, "") else str(content_type).strip()
+                content_base64 = payload.get("content_base64", None)
+                if not filename or not content_base64:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "missing_fields")
+                    return
+                if not isinstance(content_base64, str):
+                    self._send_error(HTTPStatus.BAD_REQUEST, "invalid_payload")
+                    return
+                try:
+                    row = _create_attachment(
+                        self.server.attachments_dir,
+                        user=user,
+                        request_id=request_id,
+                        filename=filename,
+                        content_type=content_type_s,
+                        content_base64=content_base64,
+                        db_path=self.server.db_path,
+                    )
+                except ValueError:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "invalid_payload")
+                    return
+                except FileNotFoundError:
+                    self._send_error(HTTPStatus.NOT_FOUND, "not_found")
+                    return
+                except PermissionError:
+                    self._send_error(HTTPStatus.FORBIDDEN, "not_authorized")
+                    return
+                self._send_json(HTTPStatus.CREATED, row)
+                return
+
             if path.startswith("/api/requests/") and path.endswith("/withdraw"):
                 user = self._require_user()
                 request_id = _parse_request_id(path, suffix="/withdraw")
@@ -709,6 +857,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.OK, _row_to_request(row))
                 return
 
+            if path.startswith("/api/attachments/") and path.endswith("/download"):
+                self._send_error(HTTPStatus.NOT_FOUND, "not_found")
+                return
+
             if path.startswith("/api/requests/") and path.endswith("/void"):
                 user = self._require_admin()
                 request_id = _parse_request_id(path, suffix="/void")
@@ -727,8 +879,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.OK, _row_to_request(row))
                 return
 
+            if path.startswith("/api/notifications/") and path.endswith("/read"):
+                user = self._require_user()
+                notification_id = _parse_notification_id(path, suffix="/read")
+                with db.connect(self.server.db_path) as conn:
+                    ok = db.mark_notification_read(conn, notification_id, user_id=user.id)
+                if not ok:
+                    self._send_error(HTTPStatus.NOT_FOUND, "not_found")
+                    return
+                self._send_empty(HTTPStatus.NO_CONTENT)
+                return
+
             if path.startswith("/api/users/"):
-                self._require_admin()
+                self._require_permission("users:manage")
                 user_id = _parse_user_id(path, suffix="")
                 payload = _read_json(self) or {}
                 updates: dict[str, object] = {}
@@ -738,18 +901,29 @@ class Handler(BaseHTTPRequestHandler):
                 if "manager_id" in payload:
                     manager_id = payload.get("manager_id")
                     updates["manager_id"] = None if manager_id in (None, "") else int(manager_id)
+                if "role" in payload:
+                    role = payload.get("role")
+                    updates["role"] = None if role in (None, "") else str(role).strip()
                 with db.connect(self.server.db_path) as conn:
                     if "manager_id" in updates and updates["manager_id"] is not None:
                         mgr = db.get_user_by_id(conn, int(updates["manager_id"]))
                         if not mgr:
                             self._send_error(HTTPStatus.BAD_REQUEST, "invalid_manager_id")
                             return
+                    if "role" in updates:
+                        role_v = updates["role"]
+                        if role_v is None or not str(role_v).strip():
+                            self._send_error(HTTPStatus.BAD_REQUEST, "invalid_role")
+                            return
+                        if not db.role_exists(conn, str(role_v)):
+                            self._send_error(HTTPStatus.BAD_REQUEST, "invalid_role")
+                            return
                     db.update_user(conn, user_id, **updates)
                 self._send_empty(HTTPStatus.NO_CONTENT)
                 return
 
             if path == "/api/admin/workflows":
-                self._require_admin()
+                self._require_permission("workflows:manage")
                 payload = _read_json(self) or {}
                 workflow_key = str(payload.get("workflow_key", "")).strip()
                 request_type = str(payload.get("request_type", "")).strip()
@@ -790,8 +964,27 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.CREATED, {"ok": True})
                 return
 
+            if path == "/api/admin/roles":
+                self._require_permission("rbac:manage")
+                payload = _read_json(self) or {}
+                role_name = str(payload.get("role", "")).strip()
+                permissions = payload.get("permissions", None)
+                if not role_name or not isinstance(permissions, list):
+                    self._send_error(HTTPStatus.BAD_REQUEST, "missing_fields")
+                    return
+                perms: list[str] = []
+                for p in permissions:
+                    if p in (None, ""):
+                        continue
+                    perms.append(str(p).strip())
+                with db.connect(self.server.db_path) as conn:
+                    db.upsert_role(conn, role_name)
+                    db.replace_role_permissions(conn, role_name, perms)
+                self._send_json(HTTPStatus.CREATED, {"ok": True})
+                return
+
             if path == "/api/admin/workflows/delete":
-                self._require_admin()
+                self._require_permission("workflows:manage")
                 payload = _read_json(self) or {}
                 workflow_key = str(payload.get("workflow_key", "")).strip()
                 if not workflow_key:
@@ -858,6 +1051,16 @@ def _parse_request_id(path: str, suffix: str) -> int:
     return int(parts[-1])
 
 def _parse_task_id(path: str, suffix: str) -> int:
+    core = path[: -len(suffix)]
+    parts = core.split("/")
+    return int(parts[-1])
+
+def _parse_notification_id(path: str, suffix: str) -> int:
+    core = path[: -len(suffix)]
+    parts = core.split("/")
+    return int(parts[-1])
+
+def _parse_attachment_id(path: str, suffix: str) -> int:
     core = path[: -len(suffix)]
     parts = core.split("/")
     return int(parts[-1])
@@ -956,6 +1159,33 @@ def _row_to_event(row) -> dict[str, Any]:
         "actor_user_id": None if row["actor_user_id"] is None else int(row["actor_user_id"]),
         "actor_username": None if row["actor_username"] is None else str(row["actor_username"]),
         "message": None if row["message"] is None else str(row["message"]),
+        "created_at": int(row["created_at"]),
+    }
+
+
+def _row_to_notification(row) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "request_id": None if row["request_id"] is None else int(row["request_id"]),
+        "event_type": str(row["event_type"]),
+        "actor_user_id": None if row["actor_user_id"] is None else int(row["actor_user_id"]),
+        "actor_username": None if row["actor_username"] is None else str(row["actor_username"]),
+        "message": None if row["message"] is None else str(row["message"]),
+        "created_at": int(row["created_at"]),
+        "read_at": None if row["read_at"] is None else int(row["read_at"]),
+    }
+
+def _row_to_attachment(row) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "request_id": int(row["request_id"]),
+        "filename": str(row["filename"]),
+        "content_type": None if row["content_type"] is None else str(row["content_type"]),
+        "size": int(row["size"]),
+        "uploader_user_id": int(row["uploader_user_id"]),
+        "uploader_username": None
+        if "uploader_username" not in row.keys() or row["uploader_username"] is None
+        else str(row["uploader_username"]),
         "created_at": int(row["created_at"]),
     }
 
@@ -1122,6 +1352,82 @@ def _can_act_on_task(user: AuthenticatedUser, task_row) -> bool:
     if task_row["assignee_role"] is not None and str(task_row["assignee_role"]) == user.role:
         return True
     return False
+
+
+def _sanitize_filename(filename: str) -> str:
+    name = str(filename).replace("\\", "/").split("/")[-1].strip()
+    if not name:
+        return "file"
+    safe = []
+    for ch in name:
+        if ch.isalnum() or ch in {" ", ".", "_", "-"}:
+            safe.append(ch)
+        else:
+            safe.append("_")
+    out = "".join(safe).strip(" .")
+    return (out or "file")[:200]
+
+
+def _create_attachment(
+    attachments_dir: Path,
+    *,
+    user: AuthenticatedUser,
+    request_id: int,
+    filename: str,
+    content_type: str | None,
+    content_base64: str,
+    db_path: Path,
+) -> dict[str, Any]:
+    with db.connect(db_path) as conn:
+        req = db.get_request(conn, request_id)
+        if not req:
+            raise FileNotFoundError("not_found")
+        if user.role != "admin" and int(req["user_id"]) != user.id:
+            raise PermissionError("not_authorized")
+
+        try:
+            data = base64.b64decode(content_base64.encode("ascii"), validate=True)
+        except Exception:
+            raise ValueError("invalid_payload")
+        if len(data) > 5 * 1024 * 1024:
+            raise ValueError("too_large")
+
+        safe_name = _sanitize_filename(filename)
+        req_dir = attachments_dir / str(request_id)
+        req_dir.mkdir(parents=True, exist_ok=True)
+        key = None
+        final = None
+        for _ in range(5):
+            candidate_key = uuid.uuid4().hex
+            candidate_path = req_dir / candidate_key
+            if candidate_path.exists():
+                continue
+            candidate_path.write_bytes(data)
+            key = candidate_key
+            final = candidate_path
+            break
+        if not key or final is None:
+            raise RuntimeError("storage_error")
+
+        storage_path = f"{request_id}/{key}"
+        att_id = db.create_attachment(
+            conn,
+            request_id,
+            uploader_user_id=user.id,
+            filename=safe_name,
+            content_type=content_type,
+            size=len(data),
+            storage_path=storage_path,
+        )
+        row = db.get_attachment(conn, att_id)
+        return {
+            "id": int(row["id"]),
+            "request_id": int(row["request_id"]),
+            "filename": str(row["filename"]),
+            "content_type": None if row["content_type"] is None else str(row["content_type"]),
+            "size": int(row["size"]),
+            "created_at": int(row["created_at"]),
+        }
 
 
 def _transfer_task(conn, user: AuthenticatedUser, task_id: int, *, assignee_user_id: int):

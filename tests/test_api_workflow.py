@@ -74,11 +74,138 @@ class APITestCase(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(body.startswith(b"<!doctype html>"))
 
+    def test_static_notifications_ui_wiring(self):
+        status, _, body = self.http("GET", "/", expect_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b'data-tab="notifications"', body)
+        self.assertIn(b'id="tab-notifications"', body)
+
+        status, _, js = self.http("GET", "/app.js", expect_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b"/api/notifications", js)
+
+    def test_static_attachments_ui_wiring(self):
+        status, _, body = self.http("GET", "/", expect_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b'id="attachFile"', body)
+
+        status, _, js = self.http("GET", "/app.js", expect_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b"/api/requests/", js)
+        self.assertIn(b"/attachments", js)
+
+    def test_static_roles_ui_wiring(self):
+        status, _, body = self.http("GET", "/", expect_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b'data-tab="roles"', body)
+        self.assertIn(b'id="tab-roles"', body)
+
+        status, _, js = self.http("GET", "/app.js", expect_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b"/api/admin/roles", js)
+
     def test_me(self):
         cookie = self.login("admin", "admin")
         status, _, me = self.http("GET", "/api/me", cookie=cookie)
         self.assertEqual(status, 200)
         self.assertEqual(me["role"], "admin")
+
+    def test_me_includes_permissions(self):
+        cookie = self.login("user", "user")
+        status, _, me = self.http("GET", "/api/me", cookie=cookie)
+        self.assertEqual(status, 200)
+        self.assertIn("permissions", me)
+        self.assertIsInstance(me["permissions"], list)
+
+    def test_rbac_role_can_read_all_requests(self):
+        with db.connect(self.db_path) as conn:
+            now = int(time.time())
+            conn.execute(
+                "INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,?,?)",
+                ("auditor", hash_password("auditor"), "auditor", now),
+            )
+
+        admin_cookie = self.login("admin", "admin")
+        user_cookie = self.login("user", "user")
+        auditor_cookie = self.login("auditor", "auditor")
+
+        status, _, _ = self.http(
+            "POST",
+            "/api/admin/roles",
+            cookie=admin_cookie,
+            json_body={"role": "auditor", "permissions": ["requests:read_all"]},
+        )
+        self.assertEqual(status, 201)
+
+        status, _, created = self.http(
+            "POST",
+            "/api/requests",
+            cookie=user_cookie,
+            json_body={"type": "generic", "title": "r1", "body": "b"},
+        )
+        self.assertEqual(status, 201)
+        r1 = created["id"]
+
+        status, _, created = self.http(
+            "POST",
+            "/api/requests",
+            cookie=auditor_cookie,
+            json_body={"type": "generic", "title": "r2", "body": "b"},
+        )
+        self.assertEqual(status, 201)
+
+        status, _, out = self.http("GET", "/api/requests?scope=all", cookie=auditor_cookie)
+        self.assertEqual(status, 200)
+        self.assertTrue([it for it in out["items"] if it["id"] == r1])
+
+    def test_admin_can_update_user_role(self):
+        with db.connect(self.db_path) as conn:
+            now = int(time.time())
+            cur = conn.execute(
+                "INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,?,?)",
+                ("rbac_user", hash_password("rbac_user"), "user", now),
+            )
+            rbac_user_id = int(cur.lastrowid)
+            conn.execute(
+                "INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,?,?)",
+                ("other_user", hash_password("other_user"), "user", now),
+            )
+
+        admin_cookie = self.login("admin", "admin")
+        rbac_cookie = self.login("rbac_user", "rbac_user")
+        other_cookie = self.login("other_user", "other_user")
+
+        status, _, _ = self.http(
+            "POST",
+            "/api/admin/roles",
+            cookie=admin_cookie,
+            json_body={"role": "auditor", "permissions": ["requests:read_all"]},
+        )
+        self.assertEqual(status, 201)
+
+        status, _, created = self.http(
+            "POST",
+            "/api/requests",
+            cookie=other_cookie,
+            json_body={"type": "generic", "title": "other", "body": "b"},
+        )
+        self.assertEqual(status, 201)
+        other_req = created["id"]
+
+        status, _, _ = self.http("GET", "/api/requests?scope=all", cookie=rbac_cookie)
+        self.assertEqual(status, 403)
+
+        status, _, _ = self.http(
+            "POST",
+            f"/api/users/{rbac_user_id}",
+            cookie=admin_cookie,
+            json_body={"role": "auditor"},
+        )
+        self.assertEqual(status, 204)
+
+        status, _, out = self.http("GET", "/api/requests?scope=all", cookie=rbac_cookie)
+        self.assertEqual(status, 200)
+        self.assertTrue([it for it in out["items"] if it["id"] == other_req])
 
     def test_workflow_catalog_list(self):
         cookie = self.login("admin", "admin")
@@ -759,6 +886,103 @@ class APITestCase(unittest.TestCase):
         status, _, updated = self.http("POST", f"/api/tasks/{task_id}/approve", cookie=transfer_cookie, json_body={})
         self.assertEqual(status, 200)
         self.assertEqual(updated["status"], "approved")
+
+    def test_cc_watchers_and_notifications(self):
+        with db.connect(self.db_path) as conn:
+            now = int(time.time())
+            conn.execute(
+                "INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,?,?)",
+                ("cc_user", hash_password("cc_user"), "user", now),
+            )
+            cc_user_id = int(conn.execute("SELECT id FROM users WHERE username='cc_user'").fetchone()["id"])
+            db.replace_workflow_steps(
+                conn,
+                "generic",
+                name="Generic (admin only)",
+                enabled=True,
+                steps=[{"step_order": 1, "step_key": "admin", "assignee_kind": "role", "assignee_value": "admin"}],
+            )
+
+        user_cookie = self.login("user", "user")
+        admin_cookie = self.login("admin", "admin")
+        cc_cookie = self.login("cc_user", "cc_user")
+
+        status, _, created = self.http(
+            "POST",
+            "/api/requests",
+            cookie=user_cookie,
+            json_body={"type": "generic", "title": "cc1", "body": "b"},
+        )
+        self.assertEqual(status, 201)
+        req_id = created["id"]
+
+        status, _, _ = self.http(
+            "POST",
+            f"/api/requests/{req_id}/watchers",
+            cookie=user_cookie,
+            json_body={"kind": "cc", "user_ids": [cc_user_id]},
+        )
+        self.assertEqual(status, 201)
+
+        status, _, inbox = self.http("GET", "/api/inbox", cookie=admin_cookie)
+        task_id = [it for it in inbox["items"] if it["request"]["id"] == req_id][0]["task"]["id"]
+        status, _, updated = self.http("POST", f"/api/tasks/{task_id}/approve", cookie=admin_cookie, json_body={})
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["status"], "approved")
+
+        status, _, notif = self.http("GET", "/api/notifications", cookie=cc_cookie)
+        self.assertEqual(status, 200)
+        items = notif["items"] or []
+        related = [n for n in items if n["request_id"] == req_id and n["event_type"] == "request_approved"]
+        self.assertTrue(related)
+
+        status, _, _ = self.http("POST", f"/api/notifications/{related[0]['id']}/read", cookie=cc_cookie, json_body={})
+        self.assertEqual(status, 204)
+
+        status, _, notif = self.http("GET", "/api/notifications", cookie=cc_cookie)
+        items = notif["items"] or []
+        target = [n for n in items if n["id"] == related[0]["id"]][0]
+        self.assertIsNotNone(target["read_at"])
+
+    def test_attachments_upload_and_download(self):
+        import base64
+
+        user_cookie = self.login("user", "user")
+        admin_cookie = self.login("admin", "admin")
+
+        status, _, created = self.http(
+            "POST",
+            "/api/requests",
+            cookie=user_cookie,
+            json_body={"type": "generic", "title": "att1", "body": "b"},
+        )
+        self.assertEqual(status, 201)
+        req_id = created["id"]
+
+        content = b"hello attachment"
+        status, _, uploaded = self.http(
+            "POST",
+            f"/api/requests/{req_id}/attachments",
+            cookie=user_cookie,
+            json_body={
+                "filename": "a.txt",
+                "content_type": "text/plain",
+                "content_base64": base64.b64encode(content).decode("ascii"),
+            },
+        )
+        self.assertEqual(status, 201)
+        att_id = uploaded["id"]
+
+        status, headers, raw = self.http(
+            "GET",
+            f"/api/attachments/{att_id}/download",
+            cookie=admin_cookie,
+            expect_json=False,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(raw, content)
+        self.assertEqual(headers.get("Content-Type"), "text/plain")
+        self.assertIn("attachment", (headers.get("Content-Disposition", "") or "").lower())
 
     def test_leave_payload_validation(self):
         user_cookie = self.login("user", "user")

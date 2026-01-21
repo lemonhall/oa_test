@@ -29,6 +29,19 @@ function setError(el, msg) {
   el.textContent = msg || "";
 }
 
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(r.error || new Error("read_failed"));
+    r.onload = () => {
+      const s = String(r.result || "");
+      const i = s.indexOf(",");
+      resolve(i >= 0 ? s.slice(i + 1) : s);
+    };
+    r.readAsDataURL(file);
+  });
+}
+
 function badgeClass(status) {
   return status === "approved" ? "approved" : status === "rejected" ? "rejected" : "pending";
 }
@@ -58,16 +71,19 @@ let currentTab = "create";
 let workflowItems = [];
 let workflowsByKey = {};
 let adminWorkflows = [];
+let adminRoles = [];
 
 function setTab(tab) {
   currentTab = tab;
-  for (const t of ["create", "requests", "inbox", "users", "workflows"]) {
+  for (const t of ["create", "requests", "inbox", "notifications", "roles", "users", "workflows"]) {
     const el = $(`#tab-${t}`);
     if (el) el.hidden = t !== tab;
   }
   document.querySelectorAll(".tabbtn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   if (tab === "requests") refreshRequests();
   if (tab === "inbox") refreshInbox();
+  if (tab === "notifications") refreshNotifications();
+  if (tab === "roles") refreshRoles();
   if (tab === "users") refreshUsers();
   if (tab === "workflows") refreshAdminWorkflows();
 }
@@ -135,6 +151,12 @@ async function refreshMe() {
   }
 }
 
+function hasPerm(key) {
+  if (!currentMe) return false;
+  const perms = currentMe.permissions || [];
+  return perms.includes("*") || perms.includes(key);
+}
+
 function renderEmpty(listEl, text) {
   listEl.innerHTML = "";
   const empty = document.createElement("div");
@@ -156,6 +178,69 @@ async function refreshInbox() {
   if (!currentMe) return;
   const data = await api("/api/inbox");
   renderInbox(list, data.items || []);
+}
+
+async function refreshNotifications() {
+  const list = $("#notificationsList");
+  if (!currentMe) return;
+  const data = await api("/api/notifications");
+  renderNotifications(list, data.items || []);
+}
+
+async function refreshRoles() {
+  if (!currentMe || !hasPerm("rbac:manage")) return;
+  const data = await api("/api/admin/roles");
+  adminRoles = data.items || [];
+
+  const sel = $("#roleSelect");
+  sel.innerHTML = "";
+  for (const r of adminRoles) {
+    const opt = document.createElement("option");
+    opt.value = r.role;
+    opt.textContent = r.role;
+    sel.appendChild(opt);
+  }
+  if (adminRoles.length) {
+    sel.value = adminRoles[0].role;
+    loadRole(sel.value);
+  } else {
+    newRole();
+  }
+}
+
+function loadRole(roleName) {
+  const r = adminRoles.find((x) => x.role === roleName);
+  if (!r) return;
+  $("#roleName").value = r.role;
+  $("#rolePerms").value = (r.permissions || []).join("\n");
+  $("#roleMsg").textContent = "";
+}
+
+function newRole() {
+  $("#roleName").value = "";
+  $("#rolePerms").value = "";
+  $("#roleMsg").textContent = "新建模式";
+}
+
+async function saveRole() {
+  $("#roleMsg").textContent = "";
+  const role = $("#roleName").value.trim();
+  const permissions = $("#rolePerms")
+    .value.split(/\r?\n/g)
+    .map((s) => s.trim())
+    .filter((s) => s);
+  if (!role) {
+    $("#roleMsg").textContent = "角色名不能为空";
+    return;
+  }
+  try {
+    await api("/api/admin/roles", { method: "POST", body: { role, permissions } });
+    $("#roleMsg").textContent = "已保存";
+    await refreshRoles();
+    await refreshUsers();
+  } catch (e) {
+    $("#roleMsg").textContent = e.code || "保存失败";
+  }
 }
 
 async function refreshUsers() {
@@ -390,6 +475,65 @@ function renderInbox(list, items) {
   }
 }
 
+function renderNotifications(list, items) {
+  if (!items.length) return renderEmpty(list, "暂无通知");
+  list.innerHTML = "";
+
+  for (const n of items) {
+    const el = document.createElement("div");
+    el.className = "item";
+
+    const top = document.createElement("div");
+    top.className = "item-top";
+
+    const badge = document.createElement("span");
+    badge.className = `badge ${n.read_at ? "" : "pending"}`.trim();
+    badge.textContent = n.read_at ? "已读" : "未读";
+
+    const title = document.createElement("div");
+    title.className = "item-title";
+    const rid = n.request_id ? `#${n.request_id}` : "";
+    const who = n.actor_username ? `（${n.actor_username}）` : "";
+    title.textContent = `${n.event_type}${who} ${rid}`.trim();
+
+    const spacer = document.createElement("div");
+    spacer.className = "spacer";
+
+    const readBtn = document.createElement("button");
+    readBtn.className = "btn btn-secondary";
+    readBtn.textContent = "标记已读";
+    readBtn.hidden = !!n.read_at;
+
+    readBtn.onclick = async () => {
+      readBtn.disabled = true;
+      try {
+        await api(`/api/notifications/${n.id}/read`, { method: "POST", body: {} });
+        await refreshNotifications();
+      } catch {
+        readBtn.disabled = false;
+      }
+    };
+
+    top.appendChild(badge);
+    top.appendChild(title);
+    top.appendChild(spacer);
+    top.appendChild(readBtn);
+    el.appendChild(top);
+
+    const body = document.createElement("div");
+    body.className = "item-body";
+    body.textContent = n.message || "";
+    el.appendChild(body);
+
+    const meta = document.createElement("div");
+    meta.className = "item-meta";
+    meta.textContent = `时间：${fmtTime(n.created_at)}`;
+    el.appendChild(meta);
+
+    list.appendChild(el);
+  }
+}
+
 function renderUsers(list, items) {
   if (!items.length) return renderEmpty(list, "暂无用户");
   list.innerHTML = "";
@@ -592,9 +736,10 @@ async function refreshAll() {
   $("#logoutBtn").hidden = false;
   $("#whoami").textContent = `当前：${currentMe.username}（${currentMe.role}）`;
 
-  $("#usersTabBtn").hidden = currentMe.role !== "admin";
-  $("#scopeWrap").hidden = currentMe.role !== "admin";
-  $("#workflowsTabBtn").hidden = currentMe.role !== "admin";
+  $("#usersTabBtn").hidden = !hasPerm("users:manage");
+  $("#rolesTabBtn").hidden = !hasPerm("rbac:manage");
+  $("#scopeWrap").hidden = !hasPerm("requests:read_all");
+  $("#workflowsTabBtn").hidden = !hasPerm("workflows:manage");
 
   if (!workflowItems.length) {
     await loadWorkflows().catch(() => {});
@@ -627,11 +772,18 @@ $("#logoutBtn").onclick = async () => {
 
 $("#refreshRequestsBtn").onclick = refreshRequests;
 $("#refreshInboxBtn").onclick = refreshInbox;
+$("#refreshNotificationsBtn").onclick = refreshNotifications;
+$("#refreshRolesBtn").onclick = refreshRoles;
 $("#refreshUsersBtn").onclick = refreshUsers;
 $("#refreshWorkflowsBtn").onclick = refreshAdminWorkflows;
 $("#scopeAll").onchange = refreshRequests;
 
 $("#workflowKey").onchange = onWorkflowChanged;
+
+// Admin role editor events
+$("#roleSelect").onchange = () => loadRole($("#roleSelect").value);
+$("#newRoleBtn").onclick = newRole;
+$("#saveRoleBtn").onclick = saveRole;
 
 $("#createBtn").onclick = async () => {
   setError($("#createError"), "");
@@ -686,9 +838,22 @@ $("#createBtn").onclick = async () => {
   }
 
   try {
-    await api("/api/requests", { method: "POST", body: { workflow: wfKey, type, title, body, payload } });
+    const created = await api("/api/requests", { method: "POST", body: { workflow: wfKey, type, title, body, payload } });
+    const file = $("#attachFile").files && $("#attachFile").files[0];
+    if (file) {
+      const content_base64 = await readFileAsBase64(file);
+      await api(`/api/requests/${created.id}/attachments`, {
+        method: "POST",
+        body: {
+          filename: file.name,
+          content_type: file.type || "application/octet-stream",
+          content_base64,
+        },
+      });
+    }
     $("#reqTitle").value = "";
     $("#reqBody").value = "";
+    $("#attachFile").value = "";
     $("#leaveReason").value = "";
     $("#leaveDays").value = "";
     $("#expenseCategory").value = "";

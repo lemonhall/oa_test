@@ -35,6 +35,30 @@ Goal: build a small but extensible OA baseline with **vanilla JS + Python (uv) +
 - Task endpoints: `approve`, `reject`, `return`, `transfer`
 - `transfer` reassigns a pending task to a specific user id
 
+## CC / watchers / notifications (current)
+
+- Watchers: `request_watchers` with `kind` = `cc` or `follow`
+- Notifications: `notifications` generated on key request events (e.g. `request_approved`, `changes_requested`, `task_transferred`)
+- API:
+  - `POST /api/requests/{id}/watchers` add watchers
+  - `GET /api/notifications` list notifications
+  - `POST /api/notifications/{id}/read` mark read
+
+## Attachments (current)
+
+- Upload: `POST /api/requests/{id}/attachments` (JSON + base64, <= 5MB)
+- Download: `GET /api/attachments/{id}/download`
+- Storage: local files under `data/attachments/<request_id>/...` + metadata in `attachments`
+
+## RBAC (current)
+
+- Tables: `roles`, `role_permissions` (users keep `users.role` as role name)
+- `GET /api/me` returns `permissions` (admin gets `["*"]`)
+- Role management: `GET/POST /api/admin/roles`
+- Enforced permission gates (non-admin):
+  - `requests:read_all` for `GET /api/requests?scope=all`
+  - `users:manage`, `workflows:manage`, `rbac:manage` for admin pages
+
 ## Suggested next iterations
 
 1) Workflow config in DB (not hardcoded in code) ✅ (basic)

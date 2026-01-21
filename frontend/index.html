@@ -37,7 +37,9 @@
           <button class="tabbtn" data-tab="create">发起申请</button>
           <button class="tabbtn" data-tab="requests">我的申请</button>
           <button class="tabbtn" data-tab="inbox">我的待办</button>
+          <button class="tabbtn" data-tab="notifications">通知</button>
           <button id="usersTabBtn" class="tabbtn" data-tab="users" hidden>用户管理</button>
+          <button id="rolesTabBtn" class="tabbtn" data-tab="roles" hidden>角色管理</button>
           <button id="workflowsTabBtn" class="tabbtn" data-tab="workflows" hidden>流程管理</button>
         </nav>
 
@@ -120,6 +122,10 @@
               <div class="label">内容</div>
               <textarea id="reqBody" rows="4" placeholder="写明原因、时间、金额等"></textarea>
             </label>
+            <label>
+              <div class="label">附件（单文件，<=5MB）</div>
+              <input id="attachFile" type="file" />
+            </label>
             <div class="row">
               <button id="createBtn" class="btn">提交</button>
               <div id="createError" class="error"></div>
@@ -147,6 +153,44 @@
             <button id="refreshInboxBtn" class="btn btn-secondary">刷新</button>
           </div>
           <div id="inboxList" class="list"></div>
+        </section>
+
+        <section id="tab-notifications" class="card" hidden>
+          <div class="row">
+            <h2>通知</h2>
+            <div class="spacer"></div>
+            <button id="refreshNotificationsBtn" class="btn btn-secondary">刷新</button>
+          </div>
+          <div id="notificationsList" class="list"></div>
+        </section>
+
+        <section id="tab-roles" class="card" hidden>
+          <div class="row">
+            <h2>角色管理</h2>
+            <div class="spacer"></div>
+            <button id="refreshRolesBtn" class="btn btn-secondary">刷新</button>
+          </div>
+          <div class="grid" style="margin-top: 12px">
+            <div class="row" style="gap: 12px; align-items: flex-end">
+              <label style="flex: 1">
+                <div class="label">选择角色</div>
+                <select id="roleSelect"></select>
+              </label>
+              <button id="newRoleBtn" class="btn btn-secondary">新建</button>
+            </div>
+            <label>
+              <div class="label">角色名</div>
+              <input id="roleName" placeholder="例如：auditor" />
+            </label>
+            <label>
+              <div class="label">权限（每行一个权限点）</div>
+              <textarea id="rolePerms" rows="8" spellcheck="false"></textarea>
+            </label>
+            <div class="row">
+              <button id="saveRoleBtn" class="btn">保存</button>
+              <div id="roleMsg" class="muted" style="font-size: 13px"></div>
+            </div>
+          </div>
         </section>
 
         <section id="tab-users" class="card" hidden>

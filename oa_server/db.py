@@ -94,6 +94,48 @@ def init_db(db_path: Path) -> None:
               created_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS request_watchers (
+              request_id INTEGER NOT NULL REFERENCES requests(id) ON DELETE CASCADE,
+              user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              kind TEXT NOT NULL,
+              created_at INTEGER NOT NULL,
+              UNIQUE(request_id, user_id, kind)
+            );
+
+            CREATE TABLE IF NOT EXISTS notifications (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              request_id INTEGER REFERENCES requests(id) ON DELETE CASCADE,
+              event_type TEXT NOT NULL,
+              actor_user_id INTEGER REFERENCES users(id),
+              message TEXT,
+              created_at INTEGER NOT NULL,
+              read_at INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS attachments (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              request_id INTEGER NOT NULL REFERENCES requests(id) ON DELETE CASCADE,
+              uploader_user_id INTEGER NOT NULL REFERENCES users(id),
+              filename TEXT NOT NULL,
+              content_type TEXT,
+              size INTEGER NOT NULL,
+              storage_path TEXT NOT NULL,
+              created_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS roles (
+              name TEXT PRIMARY KEY,
+              created_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS role_permissions (
+              role_name TEXT NOT NULL REFERENCES roles(name) ON DELETE CASCADE,
+              permission_key TEXT NOT NULL,
+              created_at INTEGER NOT NULL,
+              UNIQUE(role_name, permission_key)
+            );
+
             CREATE TABLE IF NOT EXISTS workflow_definitions (
               request_type TEXT PRIMARY KEY,
               name TEXT NOT NULL,
@@ -177,6 +219,7 @@ def init_db(db_path: Path) -> None:
         migrate_workflows(conn)
         ensure_workflow_variants(conn)
         migrate_workflow_variants(conn)
+        ensure_default_roles(conn)
 
 
 def get_user_by_username(conn: sqlite3.Connection, username: str):
@@ -200,7 +243,7 @@ def list_users(conn: sqlite3.Connection):
 _UNSET = object()
 
 
-def update_user(conn: sqlite3.Connection, user_id: int, *, dept=_UNSET, manager_id=_UNSET) -> None:
+def update_user(conn: sqlite3.Connection, user_id: int, *, dept=_UNSET, manager_id=_UNSET, role=_UNSET) -> None:
     sets: list[str] = []
     params: list[object] = []
     if dept is not _UNSET:
@@ -209,6 +252,9 @@ def update_user(conn: sqlite3.Connection, user_id: int, *, dept=_UNSET, manager_
     if manager_id is not _UNSET:
         sets.append("manager_id = ?")
         params.append(manager_id)
+    if role is not _UNSET:
+        sets.append("role = ?")
+        params.append(role)
     if not sets:
         return
     params.append(user_id)
@@ -842,6 +888,206 @@ def add_request_event(
     conn.execute(
         "INSERT INTO request_events(request_id,event_type,actor_user_id,message,created_at) VALUES(?,?,?,?,?)",
         (request_id, event_type, actor_user_id, message, now),
+    )
+    _notify_for_request_event(
+        conn,
+        request_id,
+        event_type=event_type,
+        actor_user_id=actor_user_id,
+        message=message,
+        created_at=now,
+    )
+
+
+def add_request_watcher(conn: sqlite3.Connection, request_id: int, user_id: int, *, kind: str) -> None:
+    now = int(time.time())
+    conn.execute(
+        "INSERT OR IGNORE INTO request_watchers(request_id,user_id,kind,created_at) VALUES(?,?,?,?)",
+        (request_id, user_id, kind, now),
+    )
+
+
+def list_request_watchers(conn: sqlite3.Connection, request_id: int):
+    return conn.execute(
+        """
+        SELECT w.*, u.username
+        FROM request_watchers w
+        JOIN users u ON u.id = w.user_id
+        WHERE w.request_id = ?
+        ORDER BY w.created_at ASC
+        """,
+        (request_id,),
+    ).fetchall()
+
+
+def list_notifications(conn: sqlite3.Connection, *, user_id: int, limit: int = 200):
+    return conn.execute(
+        """
+        SELECT
+          n.*,
+          au.username AS actor_username
+        FROM notifications n
+        LEFT JOIN users au ON au.id = n.actor_user_id
+        WHERE n.user_id = ?
+        ORDER BY n.id DESC
+        LIMIT ?
+        """,
+        (user_id, limit),
+    ).fetchall()
+
+
+def mark_notification_read(conn: sqlite3.Connection, notification_id: int, *, user_id: int) -> bool:
+    now = int(time.time())
+    cur = conn.execute(
+        "UPDATE notifications SET read_at=? WHERE id=? AND user_id=? AND read_at IS NULL",
+        (now, notification_id, user_id),
+    )
+    if cur.rowcount and int(cur.rowcount) > 0:
+        return True
+    row = conn.execute("SELECT 1 FROM notifications WHERE id=? AND user_id=?", (notification_id, user_id)).fetchone()
+    return row is not None
+
+
+def create_attachment(
+    conn: sqlite3.Connection,
+    request_id: int,
+    *,
+    uploader_user_id: int,
+    filename: str,
+    content_type: str | None,
+    size: int,
+    storage_path: str,
+) -> int:
+    now = int(time.time())
+    cur = conn.execute(
+        """
+        INSERT INTO attachments(request_id,uploader_user_id,filename,content_type,size,storage_path,created_at)
+        VALUES(?,?,?,?,?,?,?)
+        """,
+        (request_id, uploader_user_id, filename, content_type, size, storage_path, now),
+    )
+    return int(cur.lastrowid)
+
+
+def get_attachment(conn: sqlite3.Connection, attachment_id: int):
+    return conn.execute("SELECT * FROM attachments WHERE id=?", (attachment_id,)).fetchone()
+
+
+def list_request_attachments(conn: sqlite3.Connection, request_id: int):
+    return conn.execute(
+        """
+        SELECT a.*, u.username AS uploader_username
+        FROM attachments a
+        JOIN users u ON u.id = a.uploader_user_id
+        WHERE a.request_id = ?
+        ORDER BY a.id ASC
+        """,
+        (request_id,),
+    ).fetchall()
+
+
+_DEFAULT_USER_PERMISSIONS = [
+    "requests:create",
+    "requests:read_own",
+    "inbox:read",
+    "notifications:read",
+    "attachments:upload_own",
+    "attachments:download_own",
+]
+
+
+def ensure_default_roles(conn: sqlite3.Connection) -> None:
+    now = int(time.time())
+    conn.execute("INSERT OR IGNORE INTO roles(name,created_at) VALUES(?,?)", ("admin", now))
+    conn.execute("INSERT OR IGNORE INTO roles(name,created_at) VALUES(?,?)", ("user", now))
+
+    existing = conn.execute(
+        "SELECT COUNT(1) AS c FROM role_permissions WHERE role_name='user'",
+    ).fetchone()["c"]
+    if int(existing) == 0:
+        conn.executemany(
+            "INSERT OR IGNORE INTO role_permissions(role_name,permission_key,created_at) VALUES(?,?,?)",
+            [("user", p, now) for p in _DEFAULT_USER_PERMISSIONS],
+        )
+
+
+def upsert_role(conn: sqlite3.Connection, role_name: str) -> None:
+    now = int(time.time())
+    conn.execute("INSERT OR IGNORE INTO roles(name,created_at) VALUES(?,?)", (role_name, now))
+
+
+def replace_role_permissions(conn: sqlite3.Connection, role_name: str, permissions: list[str]) -> None:
+    now = int(time.time())
+    conn.execute("DELETE FROM role_permissions WHERE role_name=?", (role_name,))
+    conn.executemany(
+        "INSERT OR IGNORE INTO role_permissions(role_name,permission_key,created_at) VALUES(?,?,?)",
+        [(role_name, p, now) for p in permissions],
+    )
+
+
+def list_roles(conn: sqlite3.Connection):
+    return conn.execute("SELECT * FROM roles ORDER BY name ASC").fetchall()
+
+
+def list_role_permissions(conn: sqlite3.Connection, role_name: str) -> list[str]:
+    rows = conn.execute(
+        "SELECT permission_key FROM role_permissions WHERE role_name=? ORDER BY permission_key ASC",
+        (role_name,),
+    ).fetchall()
+    return [str(r["permission_key"]) for r in rows]
+
+def role_exists(conn: sqlite3.Connection, role_name: str) -> bool:
+    row = conn.execute("SELECT 1 FROM roles WHERE name=? LIMIT 1", (role_name,)).fetchone()
+    return row is not None
+
+
+def role_has_permission(conn: sqlite3.Connection, role_name: str, permission_key: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM role_permissions WHERE role_name=? AND permission_key=? LIMIT 1",
+        (role_name, permission_key),
+    ).fetchone()
+    return row is not None
+
+
+def _notify_for_request_event(
+    conn: sqlite3.Connection,
+    request_id: int,
+    *,
+    event_type: str,
+    actor_user_id: int | None,
+    message: str | None,
+    created_at: int,
+) -> None:
+    notify_types = {
+        "changes_requested",
+        "resubmitted",
+        "withdrawn",
+        "voided",
+        "request_approved",
+        "request_rejected",
+        "task_transferred",
+    }
+    if event_type not in notify_types:
+        return
+
+    owner_row = conn.execute("SELECT user_id FROM requests WHERE id=?", (request_id,)).fetchone()
+    owner_user_id = None if not owner_row else int(owner_row["user_id"])
+
+    watcher_rows = conn.execute("SELECT user_id FROM request_watchers WHERE request_id=?", (request_id,)).fetchall()
+    recipients = {int(r["user_id"]) for r in watcher_rows}
+    if owner_user_id is not None:
+        recipients.add(owner_user_id)
+    if actor_user_id is not None:
+        recipients.discard(int(actor_user_id))
+    if not recipients:
+        return
+
+    conn.executemany(
+        """
+        INSERT INTO notifications(user_id,request_id,event_type,actor_user_id,message,created_at,read_at)
+        VALUES(?,?,?,?,?,?,NULL)
+        """,
+        [(uid, request_id, event_type, actor_user_id, message, created_at) for uid in sorted(recipients)],
     )
 
 
