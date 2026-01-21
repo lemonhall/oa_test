@@ -1043,6 +1043,10 @@
                 <div class="row" style="gap: 10px; align-items: center">
                   <button id="wfAddStepBtn" class="btn btn-secondary" type="button">添加步骤</button>
                   <button id="wfShowJsonBtn" class="btn btn-secondary" type="button">查看/编辑 JSON</button>
+                  <div class="row wf-view-toggle" style="gap: 6px">
+                    <button id="wfViewTableBtn" class="btn btn-secondary active" type="button">表格</button>
+                    <button id="wfViewGraphBtn" class="btn btn-secondary" type="button">流程图</button>
+                  </div>
                   <div class="muted" style="font-size: 13px">
                     提示：可用“上移/下移”调整顺序；会签请选“会签（全部通过/任一通过）”；全员可点“全员”按钮或把指派值填为 all。
                   </div>
@@ -1062,6 +1066,18 @@
                 </datalist>
 
                 <div id="wfStepsList" style="margin-top: 10px"></div>
+
+                <div id="wfStepsGraphPanel" style="margin-top: 10px" hidden>
+                  <div class="row" style="gap: 10px; align-items: center">
+                    <div id="wfGraphSelected" class="muted" style="font-size: 13px">暂无步骤</div>
+                    <div class="spacer"></div>
+                    <button id="wfGraphEditBtn" class="btn btn-secondary" type="button">在表格中编辑</button>
+                    <button id="wfGraphMoveUpBtn" class="btn btn-secondary" type="button">上移</button>
+                    <button id="wfGraphMoveDownBtn" class="btn btn-secondary" type="button">下移</button>
+                    <button id="wfGraphDeleteBtn" class="btn btn-secondary" type="button">删除</button>
+                  </div>
+                  <div id="wfStepsGraphCanvas" style="margin-top: 10px"></div>
+                </div>
 
                 <details id="wfStepsJsonDetails" style="margin-top: 10px" hidden>
                   <summary class="muted">JSON（高级）</summary>
@@ -1104,6 +1120,7 @@
     <script src="/js/views/notifications.js"></script>
     <script src="/js/admin/users.js"></script>
     <script src="/js/admin/roles.js"></script>
+    <script src="/js/admin/workflows_graph.js"></script>
     <script src="/js/admin/workflows_editor.js"></script>
     <script src="/js/admin/workflows.js"></script>
     <script src="/js/tabs.js"></script>

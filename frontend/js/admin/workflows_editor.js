@@ -16,6 +16,11 @@ function _normalizeSteps(steps) {
     }));
 }
 
+function _syncWfStepsGraph() {
+  if (typeof renderWfStepsGraph !== "function") return;
+  renderWfStepsGraph(wfStepsDraft || []);
+}
+
 function renderWfStepsEditor(steps) {
   wfStepsDraft = _normalizeSteps(_clone(steps || []));
   const list = $("#wfStepsList");
@@ -42,7 +47,8 @@ function renderWfStepsEditor(steps) {
 
   wfStepsDraft.forEach((s, idx) => {
     const row = document.createElement("div");
-    row.className = "row";
+    row.className = "row wf-step-row";
+    row.dataset.wfStepIdx = String(idx);
     row.style.gap = "10px";
     row.style.alignItems = "flex-end";
 
@@ -85,7 +91,10 @@ function renderWfStepsEditor(steps) {
     stepKey.placeholder = "例如：admin/manager/finance";
     stepKey.setAttribute("list", "wfStepKeyList");
     stepKey.value = s.step_key || "";
-    stepKey.oninput = () => (wfStepsDraft[idx].step_key = stepKey.value.trim());
+    stepKey.oninput = () => {
+      wfStepsDraft[idx].step_key = stepKey.value.trim();
+      _syncWfStepsGraph();
+    };
 
     const assigneeKind = document.createElement("select");
     assigneeKind.style.width = "170px";
@@ -114,7 +123,10 @@ function renderWfStepsEditor(steps) {
     const assigneeValue = document.createElement("input");
     assigneeValue.placeholder = assigneeKind.value === "role" ? "角色名称，例如：admin" : "用户ID / all / 1,2,3";
     assigneeValue.value = s.assignee_value == null ? "" : String(s.assignee_value);
-    assigneeValue.oninput = () => (wfStepsDraft[idx].assignee_value = assigneeValue.value.trim() || null);
+    assigneeValue.oninput = () => {
+      wfStepsDraft[idx].assignee_value = assigneeValue.value.trim() || null;
+      _syncWfStepsGraph();
+    };
     if (assigneeKind.value === "manager") {
       assigneeValue.disabled = true;
       assigneeValue.placeholder = "（直属领导无需填写）";
@@ -154,7 +166,10 @@ function renderWfStepsEditor(steps) {
     conditionValue.style.flex = "1";
     conditionValue.placeholder = conditionKind.value ? "例如：5000 / IT,HR" : "（无）";
     conditionValue.value = s.condition_value == null ? "" : String(s.condition_value);
-    conditionValue.oninput = () => (wfStepsDraft[idx].condition_value = conditionValue.value.trim() || null);
+    conditionValue.oninput = () => {
+      wfStepsDraft[idx].condition_value = conditionValue.value.trim() || null;
+      _syncWfStepsGraph();
+    };
     conditionValue.disabled = !conditionKind.value;
 
     const ops = document.createElement("div");
@@ -180,6 +195,8 @@ function renderWfStepsEditor(steps) {
     row.appendChild(ops);
     list.appendChild(row);
   });
+
+  _syncWfStepsGraph();
 }
 
 function readWfStepsEditor() {

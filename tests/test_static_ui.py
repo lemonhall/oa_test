@@ -81,11 +81,18 @@ class TestStaticUI(BaseAPITestCase):
         self.assertIn(b'id="wfStepsList"', body)
         self.assertIn(b'id="wfAddStepBtn"', body)
         self.assertIn(b'id="wfShowJsonBtn"', body)
+        self.assertIn(b'id="wfViewGraphBtn"', body)
+        self.assertIn(b'id="wfStepsGraphPanel"', body)
 
         status, _, js = self.http("GET", "/js/admin/workflows_editor.js", expect_json=False)
         self.assertEqual(status, 200)
         self.assertIn(b"renderWfStepsEditor", js)
         self.assertIn(b"readWfStepsEditor", js)
+
+        status, _, js = self.http("GET", "/js/admin/workflows_graph.js", expect_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b"renderWfStepsGraph", js)
+        self.assertIn(b"setWfStepsEditorViewMode", js)
 
     def test_static_app_is_modularized(self):
         status, _, body = self.http("GET", "/", expect_json=False)
@@ -107,4 +114,3 @@ class TestStaticUI(BaseAPITestCase):
         status, _, js = self.http("GET", "/js/admin/roles.js", expect_json=False)
         self.assertEqual(status, 200)
         self.assertIn(b"/api/admin/roles", js)
-

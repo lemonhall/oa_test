@@ -34,5 +34,8 @@ function bindAdminWorkflowEditorEvents() {
     }
     renderWfStepsEditor(arr);
   };
-}
 
+  if (typeof bindWfStepsGraphEditorEvents === "function") {
+    bindWfStepsGraphEditorEvents();
+  }
+}

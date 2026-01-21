@@ -224,3 +224,53 @@ textarea:focus {
   color: var(--muted);
   font-size: 12px;
 }
+
+.btn.active {
+  border-color: rgba(106, 167, 255, 0.65);
+  background: rgba(106, 167, 255, 0.18);
+}
+
+#wfStepsGraphPanel {
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+#wfStepsGraphCanvas {
+  overflow: auto;
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.wf-graph-node {
+  cursor: pointer;
+}
+
+.wf-graph-node rect {
+  fill: rgba(0, 0, 0, 0.18);
+  stroke: rgba(255, 255, 255, 0.18);
+  stroke-width: 1.5;
+}
+
+.wf-graph-node.selected rect {
+  stroke: rgba(106, 167, 255, 0.85);
+  fill: rgba(106, 167, 255, 0.12);
+}
+
+.wf-graph-title {
+  fill: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.wf-graph-sub {
+  fill: var(--muted);
+  font-size: 12px;
+}
+
+.wf-step-row.flash {
+  outline: 2px solid rgba(106, 167, 255, 0.65);
+  border-radius: 12px;
+}
