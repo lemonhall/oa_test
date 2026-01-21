@@ -12,10 +12,10 @@
 - [x] 工作流管理 API（CRUD `workflow_variants` / `workflow_variant_steps`）
 - [x] 工作流管理 UI（管理员）
 - [x] 按部门的流程变体（scope：同一 `request_type` 不同部门不同审批链）
-- [ ] 更多步骤条件（例如：`max_amount`、`dept_in`、`category_in`、`days>=N`）
-- [ ] 并行会签 / 会审（ALL / ANY）
-- [ ] 退回修改 / 重新提交
-- [ ] 撤回 / 作废
+- [x] 更多步骤条件（例如：`max_amount`、`dept_in`、`category_in`、`days>=N`）
+- [x] 并行会签 / 会审（基础：`users_all` / `users_any`）
+- [x] 退回修改 / 重新提交
+- [x] 撤回 / 作废
 - [ ] 转交 / 加签 / 代理审批
 - [ ] 抄送/关注人 + 站内通知
 - [ ] 附件上传/下载（先本地存储）

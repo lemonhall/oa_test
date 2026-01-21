@@ -138,7 +138,7 @@ def _parse_payload_json(req_row) -> dict[str, Any] | None:
         return None
 
 
-def _step_condition_passes(step_row, request_payload: dict[str, Any] | None) -> bool:
+def _step_condition_passes(step_row, request_payload: dict[str, Any] | None, *, creator_dept: str | None) -> bool:
     kind = None if step_row["condition_kind"] is None else str(step_row["condition_kind"]).strip()
     value = None if step_row["condition_value"] is None else str(step_row["condition_value"]).strip()
     if not kind:
@@ -152,17 +152,58 @@ def _step_condition_passes(step_row, request_payload: dict[str, Any] | None) -> 
         except Exception:
             return False
         return amount >= threshold
+    if kind == "max_amount":
+        if not request_payload:
+            return False
+        try:
+            amount = float(request_payload.get("amount"))
+            threshold = float(value or "0")
+        except Exception:
+            return False
+        return amount <= threshold
+    if kind == "min_days":
+        if not request_payload:
+            return False
+        try:
+            days = int(request_payload.get("days"))
+            threshold = int(value or "0")
+        except Exception:
+            return False
+        return days >= threshold
+    if kind == "dept_in":
+        if not creator_dept:
+            return False
+        allowed = []
+        for part in (value or "").replace(";", ",").split(","):
+            part = part.strip()
+            if part:
+                allowed.append(part.lower())
+        if not allowed:
+            return False
+        return creator_dept.strip().lower() in allowed
+    if kind == "category_in":
+        if not request_payload:
+            return False
+        category = str(request_payload.get("category", "")).strip()
+        allowed = []
+        for part in (value or "").replace(";", ",").split(","):
+            part = part.strip()
+            if part:
+                allowed.append(part.lower())
+        if not allowed:
+            return False
+        return category.lower() in allowed
     # Unknown conditions default to True (safer than skipping required approvals)
     return True
 
 
-def _find_next_step(steps, *, current_order: int | None, request_payload: dict[str, Any] | None):
+def _find_next_step(steps, *, current_order: int | None, request_payload: dict[str, Any] | None, creator_dept: str | None):
     if not steps:
         return None
     for s in steps:
         if current_order is not None and int(s["step_order"]) <= int(current_order):
             continue
-        if _step_condition_passes(s, request_payload):
+        if _step_condition_passes(s, request_payload, creator_dept=creator_dept):
             return s
     return None
 
@@ -532,6 +573,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.OK, _row_to_request(row))
                 return
 
+            if path.startswith("/api/tasks/") and path.endswith("/return"):
+                user = self._require_user()
+                task_id = _parse_task_id(path, suffix="/return")
+                payload = _read_json(self) or {}
+                comment = None if payload is None else str(payload.get("comment", "")).strip() or None
+                with db.connect(self.server.db_path) as conn:
+                    row = _return_for_changes(conn, user, task_id, comment=comment)
+                self._send_json(HTTPStatus.OK, _row_to_request(row))
+                return
+
             if path.startswith("/api/tasks/") and path.endswith("/reject"):
                 user = self._require_user()
                 task_id = _parse_task_id(path, suffix="/reject")
@@ -564,6 +615,102 @@ class Handler(BaseHTTPRequestHandler):
                         self._send_error(HTTPStatus.NOT_FOUND, "not_found")
                         return
                     row = _decide_task(conn, user, int(row["pending_task_id"]), decision="rejected", comment=None)
+                self._send_json(HTTPStatus.OK, _row_to_request(row))
+                return
+
+            if path.startswith("/api/requests/") and path.endswith("/resubmit"):
+                user = self._require_user()
+                request_id = _parse_request_id(path, suffix="/resubmit")
+                payload = _read_json(self) or {}
+                title = str(payload.get("title", "")).strip()
+                body = str(payload.get("body", "")).strip()
+                req_payload = payload.get("payload", None)
+                if req_payload is not None and not isinstance(req_payload, dict):
+                    self._send_error(HTTPStatus.BAD_REQUEST, "invalid_payload")
+                    return
+                with db.connect(self.server.db_path) as conn:
+                    row = db.get_request(conn, request_id)
+                    if not row:
+                        self._send_error(HTTPStatus.NOT_FOUND, "not_found")
+                        return
+                    if int(row["user_id"]) != user.id:
+                        self._send_error(HTTPStatus.FORBIDDEN, "not_authorized")
+                        return
+                    if str(row["status"]) != "changes_requested":
+                        self._send_error(HTTPStatus.CONFLICT, "not_editable")
+                        return
+                    request_type = str(row["request_type"])
+                    workflow_key = None if row["workflow_key"] is None else str(row["workflow_key"])
+                    try:
+                        title2, body2, payload_json = _build_request_from_payload(
+                            request_type,
+                            title=title,
+                            body=body,
+                            payload=req_payload,
+                        )
+                    except ValueError:
+                        self._send_error(HTTPStatus.BAD_REQUEST, "invalid_payload")
+                        return
+                    if not title2 or not body2:
+                        self._send_error(HTTPStatus.BAD_REQUEST, "missing_fields")
+                        return
+                    db.cancel_all_pending_tasks(conn, request_id, decided_by=user.id)
+                    db.reset_request_for_resubmit(conn, request_id, title=title2, body=body2, payload_json=payload_json)
+                    db.add_request_event(
+                        conn,
+                        request_id,
+                        event_type="resubmitted",
+                        actor_user_id=user.id,
+                        message=None,
+                    )
+                    wk = workflow_key or db.resolve_default_workflow_key(conn, request_type, dept=user.dept) or request_type
+                    _start_workflow(
+                        conn,
+                        request_id,
+                        creator=user,
+                        request_type=request_type,
+                        workflow_key=wk,
+                    )
+                    row = db.get_request(conn, request_id)
+                self._send_json(HTTPStatus.OK, _row_to_request(row))
+                return
+
+            if path.startswith("/api/requests/") and path.endswith("/withdraw"):
+                user = self._require_user()
+                request_id = _parse_request_id(path, suffix="/withdraw")
+                with db.connect(self.server.db_path) as conn:
+                    row = db.get_request(conn, request_id)
+                    if not row:
+                        self._send_error(HTTPStatus.NOT_FOUND, "not_found")
+                        return
+                    if int(row["user_id"]) != user.id:
+                        self._send_error(HTTPStatus.FORBIDDEN, "not_authorized")
+                        return
+                    if str(row["status"]) not in {"pending", "changes_requested"}:
+                        self._send_error(HTTPStatus.CONFLICT, "not_editable")
+                        return
+                    db.cancel_all_pending_tasks(conn, request_id, decided_by=user.id)
+                    db.update_request_status(conn, request_id, status="withdrawn", decided_by=None)
+                    db.add_request_event(conn, request_id, event_type="withdrawn", actor_user_id=user.id, message=None)
+                    row = db.get_request(conn, request_id)
+                self._send_json(HTTPStatus.OK, _row_to_request(row))
+                return
+
+            if path.startswith("/api/requests/") and path.endswith("/void"):
+                user = self._require_admin()
+                request_id = _parse_request_id(path, suffix="/void")
+                with db.connect(self.server.db_path) as conn:
+                    row = db.get_request(conn, request_id)
+                    if not row:
+                        self._send_error(HTTPStatus.NOT_FOUND, "not_found")
+                        return
+                    if str(row["status"]) not in {"pending", "changes_requested"}:
+                        self._send_error(HTTPStatus.CONFLICT, "not_editable")
+                        return
+                    db.cancel_all_pending_tasks(conn, request_id, decided_by=user.id)
+                    db.update_request_status(conn, request_id, status="voided", decided_by=None)
+                    db.add_request_event(conn, request_id, event_type="voided", actor_user_id=user.id, message=None)
+                    row = db.get_request(conn, request_id)
                 self._send_json(HTTPStatus.OK, _row_to_request(row))
                 return
 
@@ -854,6 +1001,69 @@ def _resolve_assignee(creator: AuthenticatedUser, step_row) -> tuple[int | None,
     return (None, "admin")
 
 
+def _parse_int_list(value: str | None) -> list[int]:
+    if not value:
+        return []
+    out: list[int] = []
+    for part in str(value).replace(";", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            out.append(int(part))
+        except Exception:
+            continue
+    seen = set()
+    result: list[int] = []
+    for i in out:
+        if i in seen:
+            continue
+        seen.add(i)
+        result.append(i)
+    return result
+
+
+def _create_tasks_for_step(conn, request_id: int, *, creator: AuthenticatedUser, step_row) -> str:
+    step_order = int(step_row["step_order"])
+    step_key = str(step_row["step_key"])
+    kind = str(step_row["assignee_kind"])
+    value = None if step_row["assignee_value"] is None else str(step_row["assignee_value"])
+
+    if kind in {"users_all", "users_any"}:
+        user_ids = _parse_int_list(value)
+        if not user_ids:
+            db.create_task(
+                conn,
+                request_id,
+                step_order=step_order,
+                step_key=step_key,
+                assignee_user_id=None,
+                assignee_role="admin",
+            )
+            return step_key
+        for uid in user_ids:
+            db.create_task(
+                conn,
+                request_id,
+                step_order=step_order,
+                step_key=step_key,
+                assignee_user_id=uid,
+                assignee_role=None,
+            )
+        return step_key
+
+    assignee_user_id, assignee_role = _resolve_assignee(creator, step_row)
+    db.create_task(
+        conn,
+        request_id,
+        step_order=step_order,
+        step_key=step_key,
+        assignee_user_id=assignee_user_id,
+        assignee_role=assignee_role,
+    )
+    return step_key
+
+
 def _start_workflow(conn, request_id: int, *, creator: AuthenticatedUser, request_type: str, workflow_key: str) -> None:
     steps = db.list_workflow_variant_steps(conn, workflow_key)
     if not steps and workflow_key != request_type:
@@ -867,20 +1077,30 @@ def _start_workflow(conn, request_id: int, *, creator: AuthenticatedUser, reques
     else:
         req = db.get_request(conn, request_id)
         request_payload = _parse_payload_json(req) if req else None
-        step0 = _find_next_step(steps, current_order=None, request_payload=request_payload) or steps[0]
+        step0 = _find_next_step(steps, current_order=None, request_payload=request_payload, creator_dept=creator.dept) or steps[0]
         step_order = int(step0["step_order"])
         step_key = str(step0["step_key"])
         assignee_user_id, assignee_role = _resolve_assignee(creator, step0)
 
-    db.create_task(
-        conn,
-        request_id,
-        step_order=step_order,
-        step_key=step_key,
-        assignee_user_id=assignee_user_id,
-        assignee_role=assignee_role,
-    )
-    db.add_request_event(conn, request_id, event_type="task_created", actor_user_id=None, message=f"step={step_key}")
+    if steps:
+        created_step_key = _create_tasks_for_step(conn, request_id, creator=creator, step_row=step0)
+        db.add_request_event(
+            conn,
+            request_id,
+            event_type="task_created",
+            actor_user_id=None,
+            message=f"step={created_step_key}",
+        )
+    else:
+        db.create_task(
+            conn,
+            request_id,
+            step_order=step_order,
+            step_key=step_key,
+            assignee_user_id=assignee_user_id,
+            assignee_role=assignee_role,
+        )
+        db.add_request_event(conn, request_id, event_type="task_created", actor_user_id=None, message=f"step={step_key}")
 
 
 def _can_act_on_task(user: AuthenticatedUser, task_row) -> bool:
@@ -889,6 +1109,45 @@ def _can_act_on_task(user: AuthenticatedUser, task_row) -> bool:
     if task_row["assignee_role"] is not None and str(task_row["assignee_role"]) == user.role:
         return True
     return False
+
+
+def _return_for_changes(conn, user: AuthenticatedUser, task_id: int, *, comment: str | None):
+    task = db.get_task(conn, task_id)
+    if not task:
+        raise FileNotFoundError("task_not_found")
+    if str(task["status"]) != "pending":
+        raise RuntimeError("task_already_decided")
+    if not _can_act_on_task(user, task):
+        raise PermissionError("not_authorized")
+
+    request_id = int(task["request_id"])
+    req = db.get_request(conn, request_id)
+    if not req:
+        raise FileNotFoundError("request_not_found")
+    if str(req["status"]) != "pending":
+        raise RuntimeError("request_already_decided")
+
+    db.decide_task(conn, task_id, status="returned", decided_by=user.id, comment=comment)
+    db.add_request_event(
+        conn,
+        request_id,
+        event_type="task_returned",
+        actor_user_id=user.id,
+        message=f"task={task_id} step={task['step_key']}",
+    )
+
+    db.cancel_all_pending_tasks(conn, request_id, decided_by=user.id)
+    db.mark_request_changes_requested(conn, request_id)
+    db.add_request_event(
+        conn,
+        request_id,
+        event_type="changes_requested",
+        actor_user_id=user.id,
+        message=comment,
+    )
+    db.create_resubmit_task(conn, request_id, int(req["user_id"]))
+    db.add_request_event(conn, request_id, event_type="task_created", actor_user_id=None, message="step=resubmit")
+    return db.get_request(conn, request_id)
 
 
 def _decide_task(conn, user: AuthenticatedUser, task_id: int, *, decision: str, comment: str | None):
@@ -915,17 +1174,6 @@ def _decide_task(conn, user: AuthenticatedUser, task_id: int, *, decision: str, 
         message=f"task={task_id} step={task['step_key']} decision={decision}",
     )
 
-    if decision == "rejected":
-        db.update_request_status(conn, int(task["request_id"]), status="rejected", decided_by=user.id)
-        db.add_request_event(
-            conn,
-            int(task["request_id"]),
-            event_type="request_rejected",
-            actor_user_id=user.id,
-            message=comment,
-        )
-        return db.get_request(conn, int(task["request_id"]))
-
     request_type = str(req["request_type"])
     workflow_key = str(req["workflow_key"]) if "workflow_key" in req.keys() and req["workflow_key"] else None
     if not workflow_key:
@@ -945,10 +1193,54 @@ def _decide_task(conn, user: AuthenticatedUser, task_id: int, *, decision: str, 
                 break
 
     request_payload = _parse_payload_json(req)
-    next_step_row = _find_next_step(steps, current_order=current_order, request_payload=request_payload)
+    creator_row = db.get_user_by_id(conn, int(req["user_id"]))
+    creator_dept = None if creator_row["dept"] is None else str(creator_row["dept"])
+
+    current_step_row = None
+    if current_order is not None:
+        for s in steps:
+            if int(s["step_order"]) == int(current_order):
+                current_step_row = s
+                break
+    current_assignee_kind = None if not current_step_row else str(current_step_row["assignee_kind"])
+    is_users_any = current_assignee_kind == "users_any"
+    is_users_all = current_assignee_kind == "users_all"
+
+    if decision == "rejected":
+        if is_users_any and current_order is not None:
+            group = db.list_tasks_for_step(conn, int(task["request_id"]), int(current_order))
+            pending_left = any(str(t["status"]) == "pending" for t in group)
+            approved_any = any(str(t["status"]) == "approved" for t in group)
+            if pending_left or approved_any:
+                return db.get_request(conn, int(task["request_id"]))
+
+        db.update_request_status(conn, int(task["request_id"]), status="rejected", decided_by=user.id)
+        db.add_request_event(
+            conn,
+            int(task["request_id"]),
+            event_type="request_rejected",
+            actor_user_id=user.id,
+            message=comment,
+        )
+        return db.get_request(conn, int(task["request_id"]))
+
+    if is_users_all and current_order is not None:
+        group = db.list_tasks_for_step(conn, int(task["request_id"]), int(current_order))
+        if group and not all(str(t["status"]) == "approved" for t in group):
+            return db.get_request(conn, int(task["request_id"]))
+
+    if is_users_any and current_order is not None:
+        db.cancel_pending_tasks_for_step(
+            conn,
+            int(task["request_id"]),
+            int(current_order),
+            except_task_id=int(task_id),
+            decided_by=user.id,
+        )
+
+    next_step_row = _find_next_step(steps, current_order=current_order, request_payload=request_payload, creator_dept=creator_dept)
 
     if next_step_row is not None:
-        creator_row = db.get_user_by_id(conn, int(req["user_id"]))
         creator = AuthenticatedUser(
             id=int(creator_row["id"]),
             username=str(creator_row["username"]),
@@ -956,15 +1248,7 @@ def _decide_task(conn, user: AuthenticatedUser, task_id: int, *, decision: str, 
             dept=None if creator_row["dept"] is None else str(creator_row["dept"]),
             manager_id=None if creator_row["manager_id"] is None else int(creator_row["manager_id"]),
         )
-        assignee_user_id, assignee_role = _resolve_assignee(creator, next_step_row)
-        db.create_task(
-            conn,
-            int(task["request_id"]),
-            step_order=int(next_step_row["step_order"]),
-            step_key=str(next_step_row["step_key"]),
-            assignee_user_id=assignee_user_id,
-            assignee_role=assignee_role,
-        )
+        _create_tasks_for_step(conn, int(task["request_id"]), creator=creator, step_row=next_step_row)
         db.add_request_event(
             conn,
             int(task["request_id"]),

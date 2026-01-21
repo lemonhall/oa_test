@@ -287,7 +287,10 @@ def list_inbox_tasks(conn: sqlite3.Connection, *, user_id: int, role: str):
         JOIN users u ON u.id = r.user_id
         LEFT JOIN users au ON au.id = t.assignee_user_id
         WHERE t.status='pending'
-          AND r.status='pending'
+          AND (
+            r.status='pending'
+            OR (r.status='changes_requested' AND t.step_key='resubmit')
+          )
           AND (
             t.assignee_user_id = ?
             OR (t.assignee_role IS NOT NULL AND t.assignee_role = ?)
@@ -329,6 +332,30 @@ def list_request_tasks(conn: sqlite3.Connection, request_id: int):
         """,
         (request_id,),
     ).fetchall()
+
+
+def list_tasks_for_step(conn: sqlite3.Connection, request_id: int, step_order: int):
+    return conn.execute(
+        """
+        SELECT *
+        FROM tasks
+        WHERE request_id = ? AND step_order = ?
+        ORDER BY id ASC
+        """,
+        (request_id, step_order),
+    ).fetchall()
+
+
+def cancel_pending_tasks_for_step(conn: sqlite3.Connection, request_id: int, step_order: int, *, except_task_id: int, decided_by: int) -> None:
+    now = int(time.time())
+    conn.execute(
+        """
+        UPDATE tasks
+        SET status='canceled', decided_by=?, decided_at=?, comment='canceled'
+        WHERE request_id=? AND step_order=? AND status='pending' AND id<>?
+        """,
+        (decided_by, now, request_id, step_order, except_task_id),
+    )
 
 
 def ensure_default_workflows(conn: sqlite3.Connection) -> None:
@@ -923,6 +950,50 @@ def update_request_status(conn: sqlite3.Connection, request_id: int, *, status: 
         )
     else:
         conn.execute("UPDATE requests SET status=?, updated_at=? WHERE id=?", (status, now, request_id))
+
+
+def mark_request_changes_requested(conn: sqlite3.Connection, request_id: int) -> None:
+    now = int(time.time())
+    conn.execute(
+        "UPDATE requests SET status=?, updated_at=? WHERE id=?",
+        ("changes_requested", now, request_id),
+    )
+
+
+def reset_request_for_resubmit(conn: sqlite3.Connection, request_id: int, *, title: str, body: str, payload_json: str | None) -> None:
+    now = int(time.time())
+    conn.execute(
+        """
+        UPDATE requests
+        SET title=?, body=?, payload_json=?, status='pending', decided_by=NULL, decided_at=NULL, updated_at=?
+        WHERE id=?
+        """,
+        (title, body, payload_json, now, request_id),
+    )
+
+
+def create_resubmit_task(conn: sqlite3.Connection, request_id: int, owner_user_id: int) -> int:
+    now = int(time.time())
+    cur = conn.execute(
+        """
+        INSERT INTO tasks(request_id,step_order,step_key,assignee_user_id,assignee_role,status,created_at)
+        VALUES(?,?,?,?,?,?,?)
+        """,
+        (request_id, 0, "resubmit", owner_user_id, None, "pending", now),
+    )
+    return int(cur.lastrowid)
+
+
+def cancel_all_pending_tasks(conn: sqlite3.Connection, request_id: int, *, decided_by: int) -> None:
+    now = int(time.time())
+    conn.execute(
+        """
+        UPDATE tasks
+        SET status='canceled', decided_by=?, decided_at=?, comment='canceled'
+        WHERE request_id=? AND status='pending'
+        """,
+        (decided_by, now, request_id),
+    )
 
 
 def decide_request(conn: sqlite3.Connection, request_id: int, status: str, decided_by: int) -> None:

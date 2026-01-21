@@ -22,6 +22,14 @@ Goal: build a small but extensible OA baseline with **vanilla JS + Python (uv) +
 - Task: a single approval step assigned to a user or role
 - Audit: all key actions are persisted for traceability
 
+## Request lifecycle (current)
+
+- `pending`: normal approval in progress
+- `changes_requested`: approver returned for edits; owner must complete `resubmit` and restart the workflow
+- `withdrawn`: owner withdrew the request (pending tasks are canceled)
+- `voided`: admin voided the request (pending tasks are canceled)
+- `approved` / `rejected`: final states
+
 ## Suggested next iterations
 
 1) Workflow config in DB (not hardcoded in code) ✅ (basic)
@@ -41,6 +49,8 @@ Assignee rule (`assignee_kind`):
 - `manager`: the request creator's `manager_id` (fallback to role `admin` if missing)
 - `role`: assign to a role name in `assignee_value` (e.g. `admin`)
 - `user`: assign to a specific user id in `assignee_value`
+- `users_all`: countersign by multiple user ids in `assignee_value` (comma-separated), advance only after ALL approve
+- `users_any`: countersign by multiple user ids in `assignee_value` (comma-separated), advance when ANY approves (others are canceled)
 
 ## Workflow catalog (tree-ready)
 
