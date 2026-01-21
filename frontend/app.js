@@ -90,6 +90,8 @@ function typeText(t) {
     meeting_room: "会议室预定",
     car: "用车申请",
     supplies: "物品领用",
+    policy_announcement: "制度/公告发布",
+    read_ack: "阅读确认",
   };
   return map[t] || "通用";
 }
@@ -111,6 +113,8 @@ function stepText(step) {
     ? "IT审批"
     : step === "admin"
     ? "行政/管理员审批"
+    : step === "ack"
+    ? "阅读确认"
     : "审批";
 }
 
@@ -176,6 +180,8 @@ function showCreateFields(type) {
     meeting_room: "meetingRoomFields",
     car: "carFields",
     supplies: "suppliesFields",
+    policy_announcement: "policyAnnouncementFields",
+    read_ack: "readAckFields",
   };
   for (const id of Object.values(map)) {
     const el = document.getElementById(id);
@@ -1344,6 +1350,28 @@ $("#createBtn").onclick = async () => {
     payload = { items: [{ name, qty }], reason };
     title = title || "";
     body = body || "";
+  } else if (type === "policy_announcement") {
+    const subject = $("#paSubject").value.trim();
+    const content = $("#paContent").value.trim();
+    const effective_date = $("#paEffective").value;
+    if (!subject || !content) {
+      setError($("#createError"), "制度/公告需要填写主题/内容");
+      return;
+    }
+    payload = { subject, content, effective_date };
+    title = title || "";
+    body = body || "";
+  } else if (type === "read_ack") {
+    const subject = $("#raSubject").value.trim();
+    const content = $("#raContent").value.trim();
+    const due_date = $("#raDue").value;
+    if (!subject || !content) {
+      setError($("#createError"), "阅读确认需要填写主题/内容");
+      return;
+    }
+    payload = { subject, content, due_date };
+    title = title || "";
+    body = body || "";
   } else {
     if (!title || !body) {
       setError($("#createError"), "标题和内容不能为空");
@@ -1514,6 +1542,12 @@ $("#createBtn").onclick = async () => {
     $("#supItem").value = "";
     $("#supQty").value = "";
     $("#supReason").value = "";
+    $("#paSubject").value = "";
+    $("#paContent").value = "";
+    $("#paEffective").value = "";
+    $("#raSubject").value = "";
+    $("#raContent").value = "";
+    $("#raDue").value = "";
     currentTab = "requests";
     setTab("requests");
   } catch (e) {

@@ -138,6 +138,8 @@ class APITestCase(unittest.TestCase):
         self.assertIn(b"legal_review", js)
         self.assertIn(b"vpn_email", js)
         self.assertIn(b"meeting_room", js)
+        self.assertIn(b"policy_announcement", js)
+        self.assertIn(b"read_ack", js)
 
     def test_static_roles_ui_wiring(self):
         status, _, body = self.http("GET", "/", expect_json=False)
@@ -656,6 +658,92 @@ class APITestCase(unittest.TestCase):
         )
         self.assertEqual(status, 400)
         self.assertEqual(out["error"], "invalid_payload")
+
+    def test_policy_compliance_workflows_exist_and_payloads_work(self):
+        user_cookie = self.login("user", "user")
+        admin_cookie = self.login("admin", "admin")
+
+        types = [
+            ("policy_announcement", {"subject": "制度更新", "content": "请大家遵守新制度", "effective_date": "2026-04-01"}, "公告："),
+            ("read_ack", {"subject": "信息安全培训", "content": "请阅读并确认", "due_date": "2026-04-10"}, "阅读确认："),
+        ]
+
+        status, _, data = self.http("GET", "/api/workflows", cookie=user_cookie)
+        self.assertEqual(status, 200)
+        keys = {it["key"] for it in (data["items"] or [])}
+        for t, _, _ in types:
+            self.assertIn(t, keys)
+
+        for t, payload, title_prefix in types:
+            status, _, created = self.http(
+                "POST",
+                "/api/requests",
+                cookie=admin_cookie,
+                json_body={"type": t, "title": "", "body": "", "payload": payload},
+            )
+            self.assertEqual(status, 201)
+            self.assertTrue(created["title"].startswith(title_prefix))
+
+        status, _, out = self.http(
+            "POST",
+            "/api/requests",
+            cookie=admin_cookie,
+            json_body={"type": "policy_announcement", "title": "", "body": "", "payload": {"subject": "", "content": "x"}},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(out["error"], "invalid_payload")
+
+    def test_read_ack_requires_all_users_to_ack(self):
+        # Add an extra user to ensure read-ack creates tasks for all users (excluding the creator).
+        with db.connect(self.db_path) as conn:
+            now = int(time.time())
+            conn.execute(
+                "INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,?,?)",
+                ("u2", hash_password("u2"), "user", now),
+            )
+
+        admin_cookie = self.login("admin", "admin")
+
+        status, _, created = self.http(
+            "POST",
+            "/api/requests",
+            cookie=admin_cookie,
+            json_body={
+                "type": "read_ack",
+                "title": "",
+                "body": "",
+                "payload": {"subject": "安全制度", "content": "请阅读并确认", "due_date": "2026-04-10"},
+            },
+        )
+        self.assertEqual(status, 201)
+        req_id = created["id"]
+
+        # Delegate all non-admin users to admin so we can approve acknowledgements without knowing all passwords.
+        with db.connect(self.db_path) as conn:
+            users = db.list_users(conn)
+            admin_id = [u for u in users if str(u["username"]) == "admin"][0]["id"]
+            for u in users:
+                if int(u["id"]) == int(admin_id):
+                    continue
+                db.set_delegation(conn, int(u["id"]), delegate_user_id=int(admin_id), active=True)
+
+        status, _, detail = self.http("GET", f"/api/requests/{req_id}", cookie=admin_cookie)
+        self.assertEqual(status, 200)
+        ack_tasks = [t for t in (detail["tasks"] or []) if t["step_key"] == "ack" and t["status"] == "pending"]
+        self.assertTrue(len(ack_tasks) >= 2)
+        assignees = {t.get("assignee_username") for t in ack_tasks}
+        self.assertIn("user", assignees)
+        self.assertIn("u2", assignees)
+
+        # Approve all but one; request should remain pending.
+        for t in ack_tasks[:-1]:
+            status, _, updated = self.http("POST", f"/api/tasks/{t['id']}/approve", cookie=admin_cookie, json_body={})
+            self.assertEqual(status, 200)
+            self.assertEqual(updated["status"], "pending")
+
+        status, _, updated = self.http("POST", f"/api/tasks/{ack_tasks[-1]['id']}/approve", cookie=admin_cookie, json_body={})
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["status"], "approved")
 
     def test_workflow_admin_crud_and_dept_default(self):
         admin_cookie = self.login("admin", "admin")

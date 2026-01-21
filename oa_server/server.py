@@ -939,6 +939,42 @@ def _build_request_from_payload(
             body = "领用明细：\n" + "\n".join(lines) + f"\n原因：{reason}"
         return title, body, _json_dumps(payload)
 
+    if request_type == "policy_announcement":
+        subject = str(payload.get("subject", "")).strip()
+        content = str(payload.get("content", "")).strip()
+        effective_date = str(payload.get("effective_date", "")).strip()
+        if not subject or not content:
+            raise ValueError("invalid_payload")
+        if effective_date and not _is_iso_date(effective_date):
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["subject"] = subject
+        payload["content"] = content
+        payload["effective_date"] = effective_date
+        if not title:
+            title = f"公告：{subject}"
+        if not body:
+            body = content + (f"\n生效日期：{effective_date}" if effective_date else "")
+        return title, body, _json_dumps(payload)
+
+    if request_type == "read_ack":
+        subject = str(payload.get("subject", "")).strip()
+        content = str(payload.get("content", "")).strip()
+        due_date = str(payload.get("due_date", "")).strip()
+        if not subject or not content:
+            raise ValueError("invalid_payload")
+        if due_date and not _is_iso_date(due_date):
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["subject"] = subject
+        payload["content"] = content
+        payload["due_date"] = due_date
+        if not title:
+            title = f"阅读确认：{subject}"
+        if not body:
+            body = content + (f"\n截止日期：{due_date}" if due_date else "")
+        return title, body, _json_dumps(payload)
+
     # generic/other: store as-is if provided
     return title, body, _json_dumps(payload)
 
@@ -2226,7 +2262,12 @@ def _create_tasks_for_step(conn, request_id: int, *, creator: AuthenticatedUser,
     value = None if step_row["assignee_value"] is None else str(step_row["assignee_value"])
 
     if kind in {"users_all", "users_any"}:
-        user_ids = _parse_int_list(value)
+        v = (value or "").strip().lower()
+        if v in {"all", "*", "everyone"}:
+            rows = db.list_users(conn)
+            user_ids = [int(r["id"]) for r in rows if int(r["id"]) != int(creator.id)]
+        else:
+            user_ids = _parse_int_list(value)
         if not user_ids:
             db.create_task(
                 conn,

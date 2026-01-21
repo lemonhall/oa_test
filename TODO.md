@@ -48,6 +48,9 @@
 - [x] 用车申请（`car`）
 - [x] 物品领用（`supplies`）
 
+- [x] 制度/公告发布（`policy_announcement`）
+- [x] 阅读确认（`read_ack`）
+
 ## 平台能力（优先做）
 
 - [x] 工作流管理 API（CRUD `workflow_variants` / `workflow_variant_steps`）
@@ -115,5 +118,5 @@
 - [x] 物品领用
 
 ### 公文 / 合规
-- [ ] 制度/公告发布
-- [ ] 阅读确认
+- [x] 制度/公告发布
+- [x] 阅读确认

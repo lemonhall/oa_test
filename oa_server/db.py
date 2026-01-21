@@ -511,6 +511,8 @@ def ensure_default_workflows(conn: sqlite3.Connection) -> None:
         ("meeting_room", "Meeting Room Booking"),
         ("car", "Car Request"),
         ("supplies", "Supplies Request"),
+        ("policy_announcement", "Policy Announcement"),
+        ("read_ack", "Read Acknowledgement"),
     ]:
         conn.execute(
             "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
@@ -629,6 +631,8 @@ def ensure_default_workflows(conn: sqlite3.Connection) -> None:
             ("car", 2, "admin", "role", "admin", None, None, now),
             ("supplies", 1, "manager", "manager", None, None, None, now),
             ("supplies", 2, "admin", "role", "admin", None, None, now),
+            ("policy_announcement", 1, "admin", "role", "admin", None, None, now),
+            ("read_ack", 1, "ack", "users_all", "all", None, None, now),
         ],
     )
 
@@ -773,6 +777,13 @@ def migrate_workflows(conn: sqlite3.Connection) -> None:
     ]:
         _ensure_legacy_workflow(rt, name, steps)
 
+    # Ensure Policy/Compliance workflow catalog exists for older DBs.
+    for rt, name, steps in [
+        ("policy_announcement", "Policy Announcement", [(1, "admin", "role", "admin")]),
+        ("read_ack", "Read Acknowledgement", [(1, "ack", "users_all", "all")]),
+    ]:
+        _ensure_legacy_workflow(rt, name, steps)
+
 
 def _default_category_for_request_type(request_type: str) -> str:
     if request_type in {
@@ -802,6 +813,8 @@ def _default_category_for_request_type(request_type: str) -> str:
         return "IT"
     if request_type in {"meeting_room", "car", "supplies"}:
         return "Logistics"
+    if request_type in {"policy_announcement", "read_ack"}:
+        return "Policy/Compliance"
     return "General"
 
 
@@ -1012,6 +1025,13 @@ def migrate_workflow_variants(conn: sqlite3.Connection) -> None:
         ("meeting_room", "Meeting Room Booking", [(1, "admin", "role", "admin")]),
         ("car", "Car Request", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
         ("supplies", "Supplies Request", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
+    ]:
+        _ensure_variant_workflow(rt, rt, name, steps)
+
+    # Ensure Policy/Compliance workflows exist in v2 catalog for existing DBs.
+    for rt, name, steps in [
+        ("policy_announcement", "Policy Announcement", [(1, "admin", "role", "admin")]),
+        ("read_ack", "Read Acknowledgement", [(1, "ack", "users_all", "all")]),
     ]:
         _ensure_variant_workflow(rt, rt, name, steps)
 
