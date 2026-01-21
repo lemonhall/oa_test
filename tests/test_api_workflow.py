@@ -141,6 +141,19 @@ class APITestCase(unittest.TestCase):
         self.assertIn(b"policy_announcement", js)
         self.assertIn(b"read_ack", js)
 
+    def test_static_workflow_visual_editor_ui_wiring(self):
+        status, _, body = self.http("GET", "/", expect_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b'id="wfStepsEditor"', body)
+        self.assertIn(b'id="wfStepsList"', body)
+        self.assertIn(b'id="wfAddStepBtn"', body)
+        self.assertIn(b'id="wfShowJsonBtn"', body)
+
+        status, _, js = self.http("GET", "/app.js", expect_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b"renderWfStepsEditor", js)
+        self.assertIn(b"readWfStepsEditor", js)
+
     def test_static_roles_ui_wiring(self):
         status, _, body = self.http("GET", "/", expect_json=False)
         self.assertEqual(status, 200)

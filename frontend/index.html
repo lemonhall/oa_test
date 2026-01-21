@@ -1037,10 +1037,44 @@
               </label>
             </div>
 
-            <label>
-              <div class="label">步骤（JSON 数组，每个元素：step_order/step_key/assignee_kind/assignee_value/condition_kind/condition_value）</div>
-              <textarea id="wfSteps" rows="8" spellcheck="false"></textarea>
-            </label>
+            <div>
+              <div class="label">步骤（可视化编辑）</div>
+              <div id="wfStepsEditor" class="card" style="padding: 12px">
+                <div class="row" style="gap: 10px; align-items: center">
+                  <button id="wfAddStepBtn" class="btn btn-secondary" type="button">添加步骤</button>
+                  <button id="wfShowJsonBtn" class="btn btn-secondary" type="button">查看/编辑 JSON</button>
+                  <div class="muted" style="font-size: 13px">
+                    提示：可拖拽用“上移/下移”，会签用 assignee_kind=users_all/users_any（value 可用 all 或用户ID列表）。
+                  </div>
+                </div>
+
+                <datalist id="wfStepKeyList">
+                  <option value="manager"></option>
+                  <option value="gm"></option>
+                  <option value="finance"></option>
+                  <option value="procurement"></option>
+                  <option value="hr"></option>
+                  <option value="legal"></option>
+                  <option value="it"></option>
+                  <option value="admin"></option>
+                  <option value="ack"></option>
+                  <option value="resubmit"></option>
+                </datalist>
+
+                <div id="wfStepsList" style="margin-top: 10px"></div>
+
+                <details id="wfStepsJsonDetails" style="margin-top: 10px" hidden>
+                  <summary class="muted">JSON（高级）</summary>
+                  <div class="grid" style="margin-top: 10px">
+                    <textarea id="wfStepsJson" rows="10" spellcheck="false"></textarea>
+                    <div class="row" style="gap: 10px">
+                      <button id="wfApplyJsonBtn" class="btn btn-secondary" type="button">从 JSON 应用到编辑器</button>
+                      <div class="muted" style="font-size: 13px">格式：数组，每项含 step_key/assignee_kind/assignee_value/condition_kind/condition_value</div>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </div>
 
             <div class="row">
               <button id="saveWorkflowBtn" class="btn">保存</button>
