@@ -124,6 +124,21 @@ class APITestCase(unittest.TestCase):
         self.assertIn(b"fixed_asset_accounting", js)
         self.assertIn(b"asset_scrap", js)
 
+    def test_static_contract_it_logistics_forms_ui_wiring(self):
+        status, _, body = self.http("GET", "/", expect_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b'id="contractFields"', body)
+        self.assertIn(b'id="sealFields"', body)
+        self.assertIn(b'id="accountOpenFields"', body)
+        self.assertIn(b'id="meetingRoomFields"', body)
+        self.assertIn(b'id="suppliesFields"', body)
+
+        status, _, js = self.http("GET", "/app.js", expect_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b"legal_review", js)
+        self.assertIn(b"vpn_email", js)
+        self.assertIn(b"meeting_room", js)
+
     def test_static_roles_ui_wiring(self):
         status, _, body = self.http("GET", "/", expect_json=False)
         self.assertEqual(status, 200)
@@ -510,6 +525,134 @@ class APITestCase(unittest.TestCase):
             "/api/requests",
             cookie=user_cookie,
             json_body={"type": "purchase_plus", "title": "", "body": "", "payload": {"items": [], "reason": "x", "vendor": "v", "delivery_date": "2026-02-01"}},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(out["error"], "invalid_payload")
+
+    def test_contract_legal_workflows_exist_and_payloads_work(self):
+        user_cookie = self.login("user", "user")
+        admin_cookie = self.login("admin", "admin")
+
+        types = [
+            (
+                "contract",
+                {"name": "框架合同A", "party": "某某公司", "amount": 100000, "start_date": "2026-03-01", "end_date": "2027-03-01", "summary": "年度框架合同"},
+                "合同：",
+            ),
+            ("legal_review", {"subject": "合同A法务审查", "risk_level": "medium", "notes": "关注违约条款"}, "法务审查："),
+            ("seal", {"document": "合同A", "seal_type": "公章", "purpose": "签约", "needed_date": "2026-02-25"}, "用章："),
+            ("archive", {"document": "合同A", "archive_type": "合同", "retention_years": 5}, "归档："),
+        ]
+
+        status, _, data = self.http("GET", "/api/workflows", cookie=user_cookie)
+        self.assertEqual(status, 200)
+        keys = {it["key"] for it in (data["items"] or [])}
+        for t, _, _ in types:
+            self.assertIn(t, keys)
+
+        for t, payload, title_prefix in types:
+            status, _, created = self.http(
+                "POST",
+                "/api/requests",
+                cookie=user_cookie,
+                json_body={"type": t, "title": "", "body": "", "payload": payload},
+            )
+            self.assertEqual(status, 201)
+            self.assertTrue(created["title"].startswith(title_prefix))
+            req_id = created["id"]
+            status, _, inbox = self.http("GET", "/api/inbox", cookie=admin_cookie)
+            tasks = [it for it in inbox["items"] if it["request"]["id"] == req_id]
+            self.assertTrue(tasks)
+
+        status, _, out = self.http(
+            "POST",
+            "/api/requests",
+            cookie=user_cookie,
+            json_body={"type": "seal", "title": "", "body": "", "payload": {"document": "", "seal_type": "公章", "purpose": "x", "needed_date": "2026-02-25"}},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(out["error"], "invalid_payload")
+
+    def test_it_access_workflows_exist_and_payloads_work(self):
+        user_cookie = self.login("user", "user")
+        admin_cookie = self.login("admin", "admin")
+
+        types = [
+            ("account_open", {"system": "Jira", "account": "user1", "dept": "研发", "reason": "入职"}, "账号开通："),
+            ("permission", {"system": "GitLab", "permission": "reporter", "duration_days": 30, "reason": "项目需要"}, "权限申请："),
+            ("vpn_email", {"kind": "vpn", "account": "user1", "reason": "远程办公"}, "开通："),
+            ("it_device", {"item": "笔记本电脑", "qty": 1, "reason": "新员工入职"}, "设备申请："),
+        ]
+
+        status, _, data = self.http("GET", "/api/workflows", cookie=user_cookie)
+        self.assertEqual(status, 200)
+        keys = {it["key"] for it in (data["items"] or [])}
+        for t, _, _ in types:
+            self.assertIn(t, keys)
+
+        for t, payload, title_prefix in types:
+            status, _, created = self.http(
+                "POST",
+                "/api/requests",
+                cookie=user_cookie,
+                json_body={"type": t, "title": "", "body": "", "payload": payload},
+            )
+            self.assertEqual(status, 201)
+            self.assertTrue(created["title"].startswith(title_prefix))
+            req_id = created["id"]
+            status, _, inbox = self.http("GET", "/api/inbox", cookie=admin_cookie)
+            tasks = [it for it in inbox["items"] if it["request"]["id"] == req_id]
+            self.assertTrue(tasks)
+
+        status, _, out = self.http(
+            "POST",
+            "/api/requests",
+            cookie=user_cookie,
+            json_body={"type": "permission", "title": "", "body": "", "payload": {"system": "x", "permission": "", "duration_days": 0, "reason": "x"}},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(out["error"], "invalid_payload")
+
+    def test_logistics_workflows_exist_and_payloads_work(self):
+        user_cookie = self.login("user", "user")
+        admin_cookie = self.login("admin", "admin")
+
+        types = [
+            ("meeting_room", {"room": "A101", "date": "2026-03-01", "start_time": "10:00", "end_time": "11:00", "subject": "项目例会"}, "会议室预定："),
+            ("car", {"date": "2026-03-02", "start_time": "09:00", "end_time": "12:00", "from": "公司", "to": "客户现场", "reason": "拜访"}, "用车："),
+            ("supplies", {"items": [{"name": "A4纸", "qty": 2}], "reason": "日常消耗"}, "物品领用："),
+        ]
+
+        status, _, data = self.http("GET", "/api/workflows", cookie=user_cookie)
+        self.assertEqual(status, 200)
+        keys = {it["key"] for it in (data["items"] or [])}
+        for t, _, _ in types:
+            self.assertIn(t, keys)
+
+        for t, payload, title_prefix in types:
+            status, _, created = self.http(
+                "POST",
+                "/api/requests",
+                cookie=user_cookie,
+                json_body={"type": t, "title": "", "body": "", "payload": payload},
+            )
+            self.assertEqual(status, 201)
+            self.assertTrue(created["title"].startswith(title_prefix))
+            req_id = created["id"]
+            status, _, inbox = self.http("GET", "/api/inbox", cookie=admin_cookie)
+            tasks = [it for it in inbox["items"] if it["request"]["id"] == req_id]
+            self.assertTrue(tasks)
+
+        status, _, out = self.http(
+            "POST",
+            "/api/requests",
+            cookie=user_cookie,
+            json_body={
+                "type": "meeting_room",
+                "title": "",
+                "body": "",
+                "payload": {"room": "A101", "date": "bad", "start_time": "10:00", "end_time": "11:00", "subject": "x"},
+            },
         )
         self.assertEqual(status, 400)
         self.assertEqual(out["error"], "invalid_payload")

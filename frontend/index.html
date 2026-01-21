@@ -618,6 +618,250 @@
               </label>
             </div>
 
+            <div id="contractFields" class="grid" hidden>
+              <label>
+                <div class="label">合同名称</div>
+                <input id="contractName" placeholder="例如：框架合同A" />
+              </label>
+              <label>
+                <div class="label">合同对方</div>
+                <input id="contractParty" placeholder="例如：某某公司" />
+              </label>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="width: 200px">
+                  <div class="label">金额（元）</div>
+                  <input id="contractAmount" type="number" min="0" step="0.01" />
+                </label>
+                <label style="flex: 1">
+                  <div class="label">开始日期</div>
+                  <input id="contractStart" type="date" />
+                </label>
+                <label style="flex: 1">
+                  <div class="label">结束日期</div>
+                  <input id="contractEnd" type="date" />
+                </label>
+              </div>
+              <label>
+                <div class="label">摘要（可选）</div>
+                <textarea id="contractSummary" rows="2"></textarea>
+              </label>
+            </div>
+
+            <div id="legalReviewFields" class="grid" hidden>
+              <label>
+                <div class="label">审查主题</div>
+                <input id="legalSubject" placeholder="例如：合同A法务审查" />
+              </label>
+              <label>
+                <div class="label">风险等级</div>
+                <select id="legalRisk">
+                  <option value="low">低</option>
+                  <option value="medium" selected>中</option>
+                  <option value="high">高</option>
+                </select>
+              </label>
+              <label>
+                <div class="label">备注（可选）</div>
+                <textarea id="legalNotes" rows="3"></textarea>
+              </label>
+            </div>
+
+            <div id="sealFields" class="grid" hidden>
+              <label>
+                <div class="label">文件/合同名称</div>
+                <input id="sealDocument" placeholder="例如：合同A" />
+              </label>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="width: 200px">
+                  <div class="label">用章类型</div>
+                  <select id="sealType">
+                    <option value="公章">公章</option>
+                    <option value="合同章">合同章</option>
+                    <option value="财务章">财务章</option>
+                  </select>
+                </label>
+                <label style="flex: 1">
+                  <div class="label">需要日期</div>
+                  <input id="sealNeeded" type="date" />
+                </label>
+              </div>
+              <label>
+                <div class="label">用途</div>
+                <textarea id="sealPurpose" rows="2"></textarea>
+              </label>
+            </div>
+
+            <div id="archiveFields" class="grid" hidden>
+              <label>
+                <div class="label">文件/合同名称</div>
+                <input id="archiveDocument" placeholder="例如：合同A" />
+              </label>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">归档类型</div>
+                  <input id="archiveType" placeholder="例如：合同/文件" />
+                </label>
+                <label style="width: 200px">
+                  <div class="label">保管年限</div>
+                  <input id="archiveYears" type="number" min="1" step="1" />
+                </label>
+              </div>
+            </div>
+
+            <div id="accountOpenFields" class="grid" hidden>
+              <label>
+                <div class="label">系统</div>
+                <input id="aoSystem" placeholder="例如：Jira/企业微信/邮件" />
+              </label>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">账号</div>
+                  <input id="aoAccount" />
+                </label>
+                <label style="flex: 1">
+                  <div class="label">部门</div>
+                  <input id="aoDept" placeholder="例如：研发/产品" />
+                </label>
+              </div>
+              <label>
+                <div class="label">原因</div>
+                <textarea id="aoReason" rows="2"></textarea>
+              </label>
+            </div>
+
+            <div id="permissionFields" class="grid" hidden>
+              <label>
+                <div class="label">系统</div>
+                <input id="permSystem" placeholder="例如：GitLab/ERP" />
+              </label>
+              <label>
+                <div class="label">权限</div>
+                <input id="permValue" placeholder="例如：reporter/developer" />
+              </label>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="width: 220px">
+                  <div class="label">期限（天）</div>
+                  <input id="permDays" type="number" min="1" step="1" />
+                </label>
+              </div>
+              <label>
+                <div class="label">原因</div>
+                <textarea id="permReason" rows="2"></textarea>
+              </label>
+            </div>
+
+            <div id="vpnEmailFields" class="grid" hidden>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="width: 200px">
+                  <div class="label">类型</div>
+                  <select id="veKind">
+                    <option value="vpn">VPN</option>
+                    <option value="email">邮箱</option>
+                  </select>
+                </label>
+                <label style="flex: 1">
+                  <div class="label">账号</div>
+                  <input id="veAccount" />
+                </label>
+              </div>
+              <label>
+                <div class="label">原因</div>
+                <textarea id="veReason" rows="2"></textarea>
+              </label>
+            </div>
+
+            <div id="itDeviceFields" class="grid" hidden>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">设备/物品</div>
+                  <input id="itDevItem" placeholder="例如：笔记本电脑/显示器" />
+                </label>
+                <label style="width: 160px">
+                  <div class="label">数量</div>
+                  <input id="itDevQty" type="number" min="1" step="1" />
+                </label>
+              </div>
+              <label>
+                <div class="label">原因</div>
+                <textarea id="itDevReason" rows="2"></textarea>
+              </label>
+            </div>
+
+            <div id="meetingRoomFields" class="grid" hidden>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="width: 180px">
+                  <div class="label">会议室</div>
+                  <input id="mrRoom" placeholder="例如：A101" />
+                </label>
+                <label style="flex: 1">
+                  <div class="label">日期</div>
+                  <input id="mrDate" type="date" />
+                </label>
+              </div>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="width: 200px">
+                  <div class="label">开始时间</div>
+                  <input id="mrStart" type="time" />
+                </label>
+                <label style="width: 200px">
+                  <div class="label">结束时间</div>
+                  <input id="mrEnd" type="time" />
+                </label>
+              </div>
+              <label>
+                <div class="label">主题</div>
+                <input id="mrSubject" />
+              </label>
+            </div>
+
+            <div id="carFields" class="grid" hidden>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">日期</div>
+                  <input id="carDate" type="date" />
+                </label>
+                <label style="width: 200px">
+                  <div class="label">开始时间</div>
+                  <input id="carStart" type="time" />
+                </label>
+                <label style="width: 200px">
+                  <div class="label">结束时间</div>
+                  <input id="carEnd" type="time" />
+                </label>
+              </div>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">出发地</div>
+                  <input id="carFrom" placeholder="例如：公司" />
+                </label>
+                <label style="flex: 1">
+                  <div class="label">目的地</div>
+                  <input id="carTo" placeholder="例如：客户现场" />
+                </label>
+              </div>
+              <label>
+                <div class="label">原因</div>
+                <textarea id="carReason" rows="2"></textarea>
+              </label>
+            </div>
+
+            <div id="suppliesFields" class="grid" hidden>
+              <div class="row" style="gap: 12px; align-items: flex-end">
+                <label style="flex: 1">
+                  <div class="label">物品</div>
+                  <input id="supItem" placeholder="例如：A4纸/签字笔" />
+                </label>
+                <label style="width: 160px">
+                  <div class="label">数量</div>
+                  <input id="supQty" type="number" min="1" step="1" />
+                </label>
+              </div>
+              <label>
+                <div class="label">原因</div>
+                <textarea id="supReason" rows="2"></textarea>
+              </label>
+            </div>
+
             <label>
               <div class="label">标题</div>
               <input id="reqTitle" placeholder="例如：请假 / 报销 / 采购" />

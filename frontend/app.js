@@ -79,6 +79,17 @@ function typeText(t) {
     asset_transfer: "资产调拨",
     asset_maintenance: "资产维修",
     asset_scrap: "资产报废",
+    contract: "合同审批",
+    legal_review: "法务审查",
+    seal: "用章申请",
+    archive: "归档",
+    account_open: "账号开通",
+    permission: "系统权限申请",
+    vpn_email: "VPN/邮箱开通",
+    it_device: "设备申请",
+    meeting_room: "会议室预定",
+    car: "用车申请",
+    supplies: "物品领用",
   };
   return map[t] || "通用";
 }
@@ -90,10 +101,14 @@ function stepText(step) {
     ? "总经理审批"
     : step === "hr"
     ? "人事审批"
+    : step === "legal"
+    ? "法务审批"
     : step === "finance"
     ? "财务审批"
     : step === "procurement"
     ? "采购审批"
+    : step === "it"
+    ? "IT审批"
     : step === "admin"
     ? "行政/管理员审批"
     : "审批";
@@ -150,6 +165,17 @@ function showCreateFields(type) {
     asset_transfer: "assetTransferFields",
     asset_maintenance: "assetMaintenanceFields",
     asset_scrap: "assetScrapFields",
+    contract: "contractFields",
+    legal_review: "legalReviewFields",
+    seal: "sealFields",
+    archive: "archiveFields",
+    account_open: "accountOpenFields",
+    permission: "permissionFields",
+    vpn_email: "vpnEmailFields",
+    it_device: "itDeviceFields",
+    meeting_room: "meetingRoomFields",
+    car: "carFields",
+    supplies: "suppliesFields",
   };
   for (const id of Object.values(map)) {
     const el = document.getElementById(id);
@@ -1186,6 +1212,138 @@ $("#createBtn").onclick = async () => {
     payload = { asset, scrap_date, reason, amount };
     title = title || "";
     body = body || "";
+  } else if (type === "contract") {
+    const name = $("#contractName").value.trim();
+    const party = $("#contractParty").value.trim();
+    const amount = Number($("#contractAmount").value || 0);
+    const start_date = $("#contractStart").value;
+    const end_date = $("#contractEnd").value;
+    const summary = $("#contractSummary").value.trim();
+    if (!name || !party || !amount || amount <= 0 || !start_date || !end_date) {
+      setError($("#createError"), "合同审批需要填写合同名称/对方/金额/开始/结束");
+      return;
+    }
+    payload = { name, party, amount, start_date, end_date, summary };
+    title = title || "";
+    body = body || "";
+  } else if (type === "legal_review") {
+    const subject = $("#legalSubject").value.trim();
+    const risk_level = $("#legalRisk").value;
+    const notes = $("#legalNotes").value.trim();
+    if (!subject || !risk_level) {
+      setError($("#createError"), "法务审查需要填写主题/风险等级");
+      return;
+    }
+    payload = { subject, risk_level, notes };
+    title = title || "";
+    body = body || "";
+  } else if (type === "seal") {
+    const document = $("#sealDocument").value.trim();
+    const seal_type = $("#sealType").value;
+    const purpose = $("#sealPurpose").value.trim();
+    const needed_date = $("#sealNeeded").value;
+    if (!document || !seal_type || !purpose || !needed_date) {
+      setError($("#createError"), "用章需要填写文件/类型/用途/日期");
+      return;
+    }
+    payload = { document, seal_type, purpose, needed_date };
+    title = title || "";
+    body = body || "";
+  } else if (type === "archive") {
+    const document = $("#archiveDocument").value.trim();
+    const archive_type = $("#archiveType").value.trim();
+    const retention_years = Number($("#archiveYears").value || 0);
+    if (!document || !archive_type || !retention_years || retention_years <= 0) {
+      setError($("#createError"), "归档需要填写文件/类型/年限");
+      return;
+    }
+    payload = { document, archive_type, retention_years };
+    title = title || "";
+    body = body || "";
+  } else if (type === "account_open") {
+    const system = $("#aoSystem").value.trim();
+    const account = $("#aoAccount").value.trim();
+    const dept = $("#aoDept").value.trim();
+    const reason = $("#aoReason").value.trim();
+    if (!system || !account || !dept || !reason) {
+      setError($("#createError"), "账号开通需要填写系统/账号/部门/原因");
+      return;
+    }
+    payload = { system, account, dept, reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "permission") {
+    const system = $("#permSystem").value.trim();
+    const permission = $("#permValue").value.trim();
+    const duration_days = Number($("#permDays").value || 0);
+    const reason = $("#permReason").value.trim();
+    if (!system || !permission || !duration_days || duration_days <= 0 || !reason) {
+      setError($("#createError"), "权限申请需要填写系统/权限/期限/原因");
+      return;
+    }
+    payload = { system, permission, duration_days, reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "vpn_email") {
+    const kind = $("#veKind").value;
+    const account = $("#veAccount").value.trim();
+    const reason = $("#veReason").value.trim();
+    if (!kind || !account || !reason) {
+      setError($("#createError"), "VPN/邮箱开通需要填写类型/账号/原因");
+      return;
+    }
+    payload = { kind, account, reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "it_device") {
+    const item = $("#itDevItem").value.trim();
+    const qty = Number($("#itDevQty").value || 0);
+    const reason = $("#itDevReason").value.trim();
+    if (!item || !qty || qty <= 0 || !reason) {
+      setError($("#createError"), "设备申请需要填写设备/数量/原因");
+      return;
+    }
+    payload = { item, qty, reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "meeting_room") {
+    const room = $("#mrRoom").value.trim();
+    const date = $("#mrDate").value;
+    const start_time = $("#mrStart").value;
+    const end_time = $("#mrEnd").value;
+    const subject = $("#mrSubject").value.trim();
+    if (!room || !date || !start_time || !end_time || !subject) {
+      setError($("#createError"), "会议室预定需要填写会议室/日期/开始/结束/主题");
+      return;
+    }
+    payload = { room, date, start_time, end_time, subject };
+    title = title || "";
+    body = body || "";
+  } else if (type === "car") {
+    const date = $("#carDate").value;
+    const start_time = $("#carStart").value;
+    const end_time = $("#carEnd").value;
+    const from = $("#carFrom").value.trim();
+    const to = $("#carTo").value.trim();
+    const reason = $("#carReason").value.trim();
+    if (!date || !start_time || !end_time || !from || !to || !reason) {
+      setError($("#createError"), "用车需要填写日期/开始/结束/出发地/目的地/原因");
+      return;
+    }
+    payload = { date, start_time, end_time, from, to, reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "supplies") {
+    const name = $("#supItem").value.trim();
+    const qty = Number($("#supQty").value || 0);
+    const reason = $("#supReason").value.trim();
+    if (!name || !qty || qty <= 0 || !reason) {
+      setError($("#createError"), "物品领用需要填写物品/数量/原因");
+      return;
+    }
+    payload = { items: [{ name, qty }], reason };
+    title = title || "";
+    body = body || "";
   } else {
     if (!title || !body) {
       setError($("#createError"), "标题和内容不能为空");
@@ -1312,6 +1470,50 @@ $("#createBtn").onclick = async () => {
     $("#asDate").value = "";
     $("#asAmount").value = "";
     $("#asReason").value = "";
+    $("#contractName").value = "";
+    $("#contractParty").value = "";
+    $("#contractAmount").value = "";
+    $("#contractStart").value = "";
+    $("#contractEnd").value = "";
+    $("#contractSummary").value = "";
+    $("#legalSubject").value = "";
+    $("#legalRisk").value = "medium";
+    $("#legalNotes").value = "";
+    $("#sealDocument").value = "";
+    $("#sealType").value = "公章";
+    $("#sealNeeded").value = "";
+    $("#sealPurpose").value = "";
+    $("#archiveDocument").value = "";
+    $("#archiveType").value = "";
+    $("#archiveYears").value = "";
+    $("#aoSystem").value = "";
+    $("#aoAccount").value = "";
+    $("#aoDept").value = "";
+    $("#aoReason").value = "";
+    $("#permSystem").value = "";
+    $("#permValue").value = "";
+    $("#permDays").value = "";
+    $("#permReason").value = "";
+    $("#veKind").value = "vpn";
+    $("#veAccount").value = "";
+    $("#veReason").value = "";
+    $("#itDevItem").value = "";
+    $("#itDevQty").value = "";
+    $("#itDevReason").value = "";
+    $("#mrRoom").value = "";
+    $("#mrDate").value = "";
+    $("#mrStart").value = "";
+    $("#mrEnd").value = "";
+    $("#mrSubject").value = "";
+    $("#carDate").value = "";
+    $("#carStart").value = "";
+    $("#carEnd").value = "";
+    $("#carFrom").value = "";
+    $("#carTo").value = "";
+    $("#carReason").value = "";
+    $("#supItem").value = "";
+    $("#supQty").value = "";
+    $("#supReason").value = "";
     currentTab = "requests";
     setTab("requests");
   } catch (e) {

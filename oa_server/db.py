@@ -500,6 +500,17 @@ def ensure_default_workflows(conn: sqlite3.Connection) -> None:
         ("asset_transfer", "资产调拨"),
         ("asset_maintenance", "资产维修"),
         ("asset_scrap", "资产报废"),
+        ("contract", "Contract Approval"),
+        ("legal_review", "Legal Review"),
+        ("seal", "Seal Application"),
+        ("archive", "Archive"),
+        ("account_open", "Account Open"),
+        ("permission", "Access Request"),
+        ("vpn_email", "VPN/Email Open"),
+        ("it_device", "IT Device Request"),
+        ("meeting_room", "Meeting Room Booking"),
+        ("car", "Car Request"),
+        ("supplies", "Supplies Request"),
     ]:
         conn.execute(
             "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
@@ -594,6 +605,30 @@ def ensure_default_workflows(conn: sqlite3.Connection) -> None:
             ("asset_scrap", 1, "manager", "manager", None, None, None, now),
             ("asset_scrap", 2, "finance", "role", "admin", None, None, now),
             ("asset_scrap", 3, "admin", "role", "admin", None, None, now),
+            ("contract", 1, "manager", "manager", None, None, None, now),
+            ("contract", 2, "legal", "role", "admin", None, None, now),
+            ("contract", 3, "admin", "role", "admin", None, None, now),
+            ("legal_review", 1, "legal", "role", "admin", None, None, now),
+            ("legal_review", 2, "admin", "role", "admin", None, None, now),
+            ("seal", 1, "legal", "role", "admin", None, None, now),
+            ("seal", 2, "admin", "role", "admin", None, None, now),
+            ("archive", 1, "admin", "role", "admin", None, None, now),
+            ("account_open", 1, "manager", "manager", None, None, None, now),
+            ("account_open", 2, "it", "role", "admin", None, None, now),
+            ("account_open", 3, "admin", "role", "admin", None, None, now),
+            ("permission", 1, "manager", "manager", None, None, None, now),
+            ("permission", 2, "it", "role", "admin", None, None, now),
+            ("permission", 3, "admin", "role", "admin", None, None, now),
+            ("vpn_email", 1, "it", "role", "admin", None, None, now),
+            ("vpn_email", 2, "admin", "role", "admin", None, None, now),
+            ("it_device", 1, "manager", "manager", None, None, None, now),
+            ("it_device", 2, "it", "role", "admin", None, None, now),
+            ("it_device", 3, "admin", "role", "admin", None, None, now),
+            ("meeting_room", 1, "admin", "role", "admin", None, None, now),
+            ("car", 1, "manager", "manager", None, None, None, now),
+            ("car", 2, "admin", "role", "admin", None, None, now),
+            ("supplies", 1, "manager", "manager", None, None, None, now),
+            ("supplies", 2, "admin", "role", "admin", None, None, now),
         ],
     )
 
@@ -712,6 +747,32 @@ def migrate_workflows(conn: sqlite3.Connection) -> None:
     ]:
         _ensure_legacy_workflow(rt, name, steps)
 
+    # Ensure Contract/Legal workflow catalog exists for older DBs.
+    for rt, name, steps in [
+        ("contract", "Contract Approval", [(1, "manager", "manager", None), (2, "legal", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("legal_review", "Legal Review", [(1, "legal", "role", "admin"), (2, "admin", "role", "admin")]),
+        ("seal", "Seal Application", [(1, "legal", "role", "admin"), (2, "admin", "role", "admin")]),
+        ("archive", "Archive", [(1, "admin", "role", "admin")]),
+    ]:
+        _ensure_legacy_workflow(rt, name, steps)
+
+    # Ensure IT/Access workflow catalog exists for older DBs.
+    for rt, name, steps in [
+        ("account_open", "Account Open", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("permission", "Access Request", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("vpn_email", "VPN/Email Open", [(1, "it", "role", "admin"), (2, "admin", "role", "admin")]),
+        ("it_device", "IT Device Request", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
+    ]:
+        _ensure_legacy_workflow(rt, name, steps)
+
+    # Ensure Logistics workflow catalog exists for older DBs.
+    for rt, name, steps in [
+        ("meeting_room", "Meeting Room Booking", [(1, "admin", "role", "admin")]),
+        ("car", "Car Request", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
+        ("supplies", "Supplies Request", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
+    ]:
+        _ensure_legacy_workflow(rt, name, steps)
+
 
 def _default_category_for_request_type(request_type: str) -> str:
     if request_type in {
@@ -735,6 +796,12 @@ def _default_category_for_request_type(request_type: str) -> str:
         return "Procurement"
     if request_type in {"device_claim", "asset_transfer", "asset_maintenance", "asset_scrap"}:
         return "Assets"
+    if request_type in {"contract", "legal_review", "seal", "archive"}:
+        return "Contract/Legal"
+    if request_type in {"account_open", "permission", "vpn_email", "it_device"}:
+        return "IT"
+    if request_type in {"meeting_room", "car", "supplies"}:
+        return "Logistics"
     return "General"
 
 
@@ -919,6 +986,32 @@ def migrate_workflow_variants(conn: sqlite3.Connection) -> None:
         ("asset_transfer", "资产调拨", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
         ("asset_maintenance", "资产维修", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
         ("asset_scrap", "资产报废", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "admin", "role", "admin")]),
+    ]:
+        _ensure_variant_workflow(rt, rt, name, steps)
+
+    # Ensure Contract/Legal workflows exist in v2 catalog for existing DBs.
+    for rt, name, steps in [
+        ("contract", "Contract Approval", [(1, "manager", "manager", None), (2, "legal", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("legal_review", "Legal Review", [(1, "legal", "role", "admin"), (2, "admin", "role", "admin")]),
+        ("seal", "Seal Application", [(1, "legal", "role", "admin"), (2, "admin", "role", "admin")]),
+        ("archive", "Archive", [(1, "admin", "role", "admin")]),
+    ]:
+        _ensure_variant_workflow(rt, rt, name, steps)
+
+    # Ensure IT/Access workflows exist in v2 catalog for existing DBs.
+    for rt, name, steps in [
+        ("account_open", "Account Open", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("permission", "Access Request", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("vpn_email", "VPN/Email Open", [(1, "it", "role", "admin"), (2, "admin", "role", "admin")]),
+        ("it_device", "IT Device Request", [(1, "manager", "manager", None), (2, "it", "role", "admin"), (3, "admin", "role", "admin")]),
+    ]:
+        _ensure_variant_workflow(rt, rt, name, steps)
+
+    # Ensure Logistics workflows exist in v2 catalog for existing DBs.
+    for rt, name, steps in [
+        ("meeting_room", "Meeting Room Booking", [(1, "admin", "role", "admin")]),
+        ("car", "Car Request", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
+        ("supplies", "Supplies Request", [(1, "manager", "manager", None), (2, "admin", "role", "admin")]),
     ]:
         _ensure_variant_workflow(rt, rt, name, steps)
 

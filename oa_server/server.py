@@ -684,6 +684,261 @@ def _build_request_from_payload(
             body = f"报废日期：{scrap_date}\n原因：{reason}"
         return title, body, _json_dumps(payload)
 
+    if request_type == "contract":
+        name = str(payload.get("name", "")).strip()
+        party = str(payload.get("party", "")).strip()
+        summary = str(payload.get("summary", "")).strip()
+        start_date = str(payload.get("start_date", "")).strip()
+        end_date = str(payload.get("end_date", "")).strip()
+        amount_raw = payload.get("amount", None)
+        try:
+            amount = float(amount_raw)
+        except Exception:
+            amount = 0.0
+        if not name or not party or amount <= 0 or not start_date or not end_date:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(start_date) or not _is_iso_date(end_date):
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["name"] = name
+        payload["party"] = party
+        payload["amount"] = amount
+        payload["start_date"] = start_date
+        payload["end_date"] = end_date
+        payload["summary"] = summary
+        if not title:
+            title = f"合同：{name}"
+        if not body:
+            body = f"对方：{party}\n金额：{amount:g}元\n期限：{start_date}~{end_date}"
+            if summary:
+                body += f"\n摘要：{summary}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "legal_review":
+        subject = str(payload.get("subject", "")).strip()
+        risk_level = str(payload.get("risk_level", "")).strip().lower()
+        notes = str(payload.get("notes", "")).strip()
+        if risk_level in {"low", "medium", "high"}:
+            pass
+        elif risk_level in {"低", "low"}:
+            risk_level = "low"
+        elif risk_level in {"中", "medium"}:
+            risk_level = "medium"
+        elif risk_level in {"高", "high"}:
+            risk_level = "high"
+        else:
+            raise ValueError("invalid_payload")
+        if not subject:
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["subject"] = subject
+        payload["risk_level"] = risk_level
+        payload["notes"] = notes
+        if not title:
+            title = f"法务审查：{subject}"
+        if not body:
+            rl = "低" if risk_level == "low" else "中" if risk_level == "medium" else "高"
+            body = f"风险等级：{rl}"
+            if notes:
+                body += f"\n备注：{notes}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "seal":
+        document = str(payload.get("document", "")).strip()
+        seal_type = str(payload.get("seal_type", "")).strip()
+        purpose = str(payload.get("purpose", "")).strip()
+        needed_date = str(payload.get("needed_date", "")).strip()
+        if not document or not seal_type or not purpose or not needed_date:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(needed_date):
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["document"] = document
+        payload["seal_type"] = seal_type
+        payload["purpose"] = purpose
+        payload["needed_date"] = needed_date
+        if not title:
+            title = f"用章：{document}"
+        if not body:
+            body = f"类型：{seal_type}\n用途：{purpose}\n需要日期：{needed_date}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "archive":
+        document = str(payload.get("document", "")).strip()
+        archive_type = str(payload.get("archive_type", "")).strip()
+        retention_years_raw = payload.get("retention_years", None)
+        try:
+            retention_years = int(retention_years_raw)
+        except Exception:
+            retention_years = 0
+        if not document or not archive_type or retention_years <= 0:
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["document"] = document
+        payload["archive_type"] = archive_type
+        payload["retention_years"] = retention_years
+        if not title:
+            title = f"归档：{document}"
+        if not body:
+            body = f"类型：{archive_type}\n保管：{retention_years}年"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "account_open":
+        system = str(payload.get("system", "")).strip()
+        account = str(payload.get("account", "")).strip()
+        dept = str(payload.get("dept", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        if not system or not account or not dept or not reason:
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["system"] = system
+        payload["account"] = account
+        payload["dept"] = dept
+        payload["reason"] = reason
+        if not title:
+            title = f"账号开通：{system}"
+        if not body:
+            body = f"账号：{account}\n部门：{dept}\n原因：{reason}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "permission":
+        system = str(payload.get("system", "")).strip()
+        perm = str(payload.get("permission", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        duration_raw = payload.get("duration_days", None)
+        try:
+            duration_days = int(duration_raw)
+        except Exception:
+            duration_days = 0
+        if not system or not perm or not reason or duration_days <= 0:
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["system"] = system
+        payload["permission"] = perm
+        payload["duration_days"] = duration_days
+        payload["reason"] = reason
+        if not title:
+            title = f"权限申请：{system}"
+        if not body:
+            body = f"权限：{perm}\n期限：{duration_days}天\n原因：{reason}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "vpn_email":
+        kind = str(payload.get("kind", "")).strip().lower()
+        account = str(payload.get("account", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        if kind in {"vpn", "VPN"}:
+            kind = "vpn"
+        elif kind in {"email", "mail", "邮箱"}:
+            kind = "email"
+        else:
+            raise ValueError("invalid_payload")
+        if not account or not reason:
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["kind"] = kind
+        payload["account"] = account
+        payload["reason"] = reason
+        kind_text = "VPN" if kind == "vpn" else "邮箱"
+        if not title:
+            title = f"开通：{kind_text}"
+        if not body:
+            body = f"账号：{account}\n原因：{reason}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "it_device":
+        item = str(payload.get("item", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        qty_raw = payload.get("qty", None)
+        try:
+            qty = int(qty_raw)
+        except Exception:
+            qty = 0
+        if not item or not reason or qty <= 0:
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["item"] = item
+        payload["qty"] = qty
+        payload["reason"] = reason
+        if not title:
+            title = f"设备申请：{item}×{qty}"
+        if not body:
+            body = f"原因：{reason}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "meeting_room":
+        room = str(payload.get("room", "")).strip()
+        date = str(payload.get("date", "")).strip()
+        start_time = str(payload.get("start_time", "")).strip()
+        end_time = str(payload.get("end_time", "")).strip()
+        subject = str(payload.get("subject", "")).strip()
+        if not room or not date or not start_time or not end_time or not subject:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(date) or not _is_hhmm(start_time) or not _is_hhmm(end_time):
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["room"] = room
+        payload["date"] = date
+        payload["start_time"] = start_time
+        payload["end_time"] = end_time
+        payload["subject"] = subject
+        if not title:
+            title = f"会议室预定：{room}"
+        if not body:
+            body = f"日期：{date}\n时间：{start_time}~{end_time}\n主题：{subject}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "car":
+        date = str(payload.get("date", "")).strip()
+        start_time = str(payload.get("start_time", "")).strip()
+        end_time = str(payload.get("end_time", "")).strip()
+        from_loc = str(payload.get("from", "")).strip()
+        to_loc = str(payload.get("to", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        if not date or not start_time or not end_time or not from_loc or not to_loc or not reason:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(date) or not _is_hhmm(start_time) or not _is_hhmm(end_time):
+            raise ValueError("invalid_payload")
+        payload = dict(payload)
+        payload["date"] = date
+        payload["start_time"] = start_time
+        payload["end_time"] = end_time
+        payload["from"] = from_loc
+        payload["to"] = to_loc
+        payload["reason"] = reason
+        if not title:
+            title = "用车："
+        if not body:
+            body = f"日期：{date}\n时间：{start_time}~{end_time}\n路线：{from_loc} → {to_loc}\n原因：{reason}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "supplies":
+        items = payload.get("items")
+        reason = str(payload.get("reason", "")).strip()
+        if not isinstance(items, list) or not items or not reason:
+            raise ValueError("invalid_payload")
+        normalized_items: list[dict[str, Any]] = []
+        for it in items:
+            if not isinstance(it, dict):
+                raise ValueError("invalid_payload")
+            name = str(it.get("name", "")).strip()
+            try:
+                qty = int(it.get("qty", 0))
+            except Exception:
+                qty = 0
+            if not name or qty <= 0:
+                raise ValueError("invalid_payload")
+            normalized_items.append({"name": name, "qty": qty})
+        payload = dict(payload)
+        payload["items"] = normalized_items
+        payload["reason"] = reason
+        if not title:
+            title = f"物品领用：{normalized_items[0]['name']}"
+        if not body:
+            lines = [f"- {x['name']} × {x['qty']}" for x in normalized_items]
+            body = "领用明细：\n" + "\n".join(lines) + f"\n原因：{reason}"
+        return title, body, _json_dumps(payload)
+
     # generic/other: store as-is if provided
     return title, body, _json_dumps(payload)
 
