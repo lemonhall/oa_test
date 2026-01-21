@@ -573,6 +573,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.OK, _row_to_request(row))
                 return
 
+            if path.startswith("/api/tasks/") and path.endswith("/transfer"):
+                user = self._require_user()
+                task_id = _parse_task_id(path, suffix="/transfer")
+                payload = _read_json(self) or {}
+                assignee_user_id = payload.get("assignee_user_id", None)
+                if assignee_user_id in (None, ""):
+                    self._send_error(HTTPStatus.BAD_REQUEST, "missing_fields")
+                    return
+                with db.connect(self.server.db_path) as conn:
+                    row = _transfer_task(conn, user, task_id, assignee_user_id=int(assignee_user_id))
+                self._send_json(HTTPStatus.OK, _row_to_request(row))
+                return
+
             if path.startswith("/api/tasks/") and path.endswith("/return"):
                 user = self._require_user()
                 task_id = _parse_task_id(path, suffix="/return")
@@ -1109,6 +1122,35 @@ def _can_act_on_task(user: AuthenticatedUser, task_row) -> bool:
     if task_row["assignee_role"] is not None and str(task_row["assignee_role"]) == user.role:
         return True
     return False
+
+
+def _transfer_task(conn, user: AuthenticatedUser, task_id: int, *, assignee_user_id: int):
+    task = db.get_task(conn, task_id)
+    if not task:
+        raise FileNotFoundError("task_not_found")
+    if str(task["status"]) != "pending":
+        raise RuntimeError("task_already_decided")
+    if user.role != "admin" and not _can_act_on_task(user, task):
+        raise PermissionError("not_authorized")
+
+    req = db.get_request(conn, int(task["request_id"]))
+    if not req:
+        raise FileNotFoundError("request_not_found")
+    if str(req["status"]) != "pending":
+        raise RuntimeError("request_already_decided")
+
+    if not db.get_user_by_id(conn, int(assignee_user_id)):
+        raise FileNotFoundError("user_not_found")
+
+    db.transfer_task(conn, int(task_id), assignee_user_id=int(assignee_user_id))
+    db.add_request_event(
+        conn,
+        int(task["request_id"]),
+        event_type="task_transferred",
+        actor_user_id=user.id,
+        message=f"task={task_id} to_user_id={assignee_user_id}",
+    )
+    return db.get_request(conn, int(task["request_id"]))
 
 
 def _return_for_changes(conn, user: AuthenticatedUser, task_id: int, *, comment: str | None):

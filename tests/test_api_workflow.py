@@ -710,6 +710,56 @@ class APITestCase(unittest.TestCase):
         status, _, inbox = self.http("GET", "/api/inbox", cookie=admin_cookie)
         self.assertFalse([it for it in inbox["items"] if it["request"]["id"] == req2])
 
+    def test_task_transfer(self):
+        with db.connect(self.db_path) as conn:
+            now = int(time.time())
+            conn.execute(
+                "INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,?,?)",
+                ("transfer_to", hash_password("transfer_to"), "user", now),
+            )
+            transfer_to_id = int(conn.execute("SELECT id FROM users WHERE username='transfer_to'").fetchone()["id"])
+            db.replace_workflow_steps(
+                conn,
+                "generic",
+                name="Generic (admin only)",
+                enabled=True,
+                steps=[{"step_order": 1, "step_key": "admin", "assignee_kind": "role", "assignee_value": "admin"}],
+            )
+
+        user_cookie = self.login("user", "user")
+        admin_cookie = self.login("admin", "admin")
+        transfer_cookie = self.login("transfer_to", "transfer_to")
+
+        status, _, created = self.http(
+            "POST",
+            "/api/requests",
+            cookie=user_cookie,
+            json_body={"type": "generic", "title": "transfer", "body": "b"},
+        )
+        self.assertEqual(status, 201)
+        req_id = created["id"]
+
+        status, _, inbox = self.http("GET", "/api/inbox", cookie=admin_cookie)
+        task_id = [it for it in inbox["items"] if it["request"]["id"] == req_id][0]["task"]["id"]
+
+        status, _, updated = self.http(
+            "POST",
+            f"/api/tasks/{task_id}/transfer",
+            cookie=admin_cookie,
+            json_body={"assignee_user_id": transfer_to_id},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["status"], "pending")
+
+        status, _, inbox = self.http("GET", "/api/inbox", cookie=admin_cookie)
+        self.assertFalse([it for it in inbox["items"] if it["request"]["id"] == req_id])
+
+        status, _, inbox = self.http("GET", "/api/inbox", cookie=transfer_cookie)
+        task_id = [it for it in inbox["items"] if it["request"]["id"] == req_id][0]["task"]["id"]
+        status, _, updated = self.http("POST", f"/api/tasks/{task_id}/approve", cookie=transfer_cookie, json_body={})
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["status"], "approved")
+
     def test_leave_payload_validation(self):
         user_cookie = self.login("user", "user")
         status, _, err = self.http(

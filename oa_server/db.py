@@ -317,6 +317,17 @@ def decide_task(conn: sqlite3.Connection, task_id: int, *, status: str, decided_
     )
 
 
+def transfer_task(conn: sqlite3.Connection, task_id: int, *, assignee_user_id: int) -> None:
+    conn.execute(
+        """
+        UPDATE tasks
+        SET assignee_user_id=?, assignee_role=NULL
+        WHERE id=? AND status='pending'
+        """,
+        (assignee_user_id, task_id),
+    )
+
+
 def list_request_tasks(conn: sqlite3.Connection, request_id: int):
     return conn.execute(
         """

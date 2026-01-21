@@ -30,6 +30,11 @@ Goal: build a small but extensible OA baseline with **vanilla JS + Python (uv) +
 - `voided`: admin voided the request (pending tasks are canceled)
 - `approved` / `rejected`: final states
 
+## Task actions (current)
+
+- Task endpoints: `approve`, `reject`, `return`, `transfer`
+- `transfer` reassigns a pending task to a specific user id
+
 ## Suggested next iterations
 
 1) Workflow config in DB (not hardcoded in code) ✅ (basic)
