@@ -297,6 +297,67 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
 
+            if path == "/api/admin/workflows":
+                self._require_admin()
+                with db.connect(self.server.db_path) as conn:
+                    rows = db.list_workflow_variants_admin(conn)
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "items": [
+                            {
+                                "key": str(r["workflow_key"]),
+                                "request_type": str(r["request_type"]),
+                                "name": str(r["name"]),
+                                "category": str(r["category"]),
+                                "scope_kind": str(r["scope_kind"]),
+                                "scope_value": None if r["scope_value"] is None else str(r["scope_value"]),
+                                "enabled": bool(int(r["enabled"])),
+                                "is_default": bool(int(r["is_default"])),
+                            }
+                            for r in rows
+                        ]
+                    },
+                )
+                return
+
+            if path.startswith("/api/admin/workflows/"):
+                self._require_admin()
+                workflow_key = path.split("/", 4)[-1]
+                with db.connect(self.server.db_path) as conn:
+                    wf = db.get_workflow_variant(conn, workflow_key)
+                    if not wf:
+                        self._send_error(HTTPStatus.NOT_FOUND, "not_found")
+                        return
+                    steps = db.list_workflow_variant_steps(conn, workflow_key)
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "workflow": {
+                            "key": str(wf["workflow_key"]),
+                            "request_type": str(wf["request_type"]),
+                            "name": str(wf["name"]),
+                            "category": str(wf["category"]),
+                            "scope_kind": str(wf["scope_kind"]),
+                            "scope_value": None if wf["scope_value"] is None else str(wf["scope_value"]),
+                            "enabled": bool(int(wf["enabled"])),
+                            "is_default": bool(int(wf["is_default"])),
+                        },
+                        "steps": [
+                            {
+                                "step_order": int(s["step_order"]),
+                                "step_key": str(s["step_key"]),
+                                "assignee_kind": str(s["assignee_kind"]),
+                                "assignee_value": None if s["assignee_value"] is None else str(s["assignee_value"]),
+                                "condition_kind": None if s["condition_kind"] is None else str(s["condition_kind"]),
+                                "condition_value": None if s["condition_value"] is None else str(s["condition_value"]),
+                            }
+                            for s in steps
+                        ],
+                    },
+                )
+                return
+
             if path == "/api/requests":
                 user = self._require_user()
                 params = parse_qs(query or "")
@@ -524,6 +585,60 @@ class Handler(BaseHTTPRequestHandler):
                             self._send_error(HTTPStatus.BAD_REQUEST, "invalid_manager_id")
                             return
                     db.update_user(conn, user_id, **updates)
+                self._send_empty(HTTPStatus.NO_CONTENT)
+                return
+
+            if path == "/api/admin/workflows":
+                self._require_admin()
+                payload = _read_json(self) or {}
+                workflow_key = str(payload.get("workflow_key", "")).strip()
+                request_type = str(payload.get("request_type", "")).strip()
+                name = str(payload.get("name", "")).strip()
+                category = str(payload.get("category", "")).strip() or "General"
+                scope_kind = str(payload.get("scope_kind", "global")).strip() or "global"
+                scope_value = payload.get("scope_value", None)
+                scope_value_s = None if scope_value in (None, "") else str(scope_value).strip()
+                enabled = bool(payload.get("enabled", True))
+                is_default = bool(payload.get("is_default", False))
+                steps = payload.get("steps", None)
+                if not workflow_key or not request_type or not name:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "missing_fields")
+                    return
+                if scope_kind not in {"global", "dept"}:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "invalid_scope")
+                    return
+                if scope_kind == "dept" and not scope_value_s:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "invalid_scope")
+                    return
+                if steps is not None and not isinstance(steps, list):
+                    self._send_error(HTTPStatus.BAD_REQUEST, "invalid_steps")
+                    return
+                with db.connect(self.server.db_path) as conn:
+                    db.upsert_workflow_variant(
+                        conn,
+                        workflow_key=workflow_key,
+                        request_type=request_type,
+                        name=name,
+                        category=category,
+                        scope_kind=scope_kind,
+                        scope_value=scope_value_s,
+                        enabled=enabled,
+                        is_default=is_default,
+                    )
+                    if steps is not None:
+                        db.replace_workflow_variant_steps(conn, workflow_key, steps)
+                self._send_json(HTTPStatus.CREATED, {"ok": True})
+                return
+
+            if path == "/api/admin/workflows/delete":
+                self._require_admin()
+                payload = _read_json(self) or {}
+                workflow_key = str(payload.get("workflow_key", "")).strip()
+                if not workflow_key:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "missing_fields")
+                    return
+                with db.connect(self.server.db_path) as conn:
+                    db.delete_workflow_variant(conn, workflow_key)
                 self._send_empty(HTTPStatus.NO_CONTENT)
                 return
 

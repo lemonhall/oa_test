@@ -86,6 +86,58 @@ class APITestCase(unittest.TestCase):
         keys = {it["key"] for it in (data["items"] or [])}
         self.assertTrue({"leave", "expense", "purchase", "generic"}.issubset(keys))
 
+    def test_workflow_admin_crud_and_dept_default(self):
+        admin_cookie = self.login("admin", "admin")
+
+        # Set user dept=IT so dept-scoped workflows become visible and defaultable.
+        status, _, _ = self.http("POST", "/api/users/2", cookie=admin_cookie, json_body={"dept": "IT"})
+        self.assertEqual(status, 204)
+
+        # Create a dept-specific purchase workflow variant and set it as default for dept IT.
+        variant = {
+            "workflow_key": "purchase_it",
+            "request_type": "purchase",
+            "name": "IT 采购流程",
+            "category": "Procurement",
+            "scope_kind": "dept",
+            "scope_value": "IT",
+            "enabled": True,
+            "is_default": True,
+            "steps": [
+                {"step_order": 1, "step_key": "manager", "assignee_kind": "manager"},
+                {"step_order": 2, "step_key": "it_lead", "assignee_kind": "role", "assignee_value": "admin"},
+                {"step_order": 3, "step_key": "finance", "assignee_kind": "role", "assignee_value": "admin"},
+            ],
+        }
+        status, _, _ = self.http("POST", "/api/admin/workflows", cookie=admin_cookie, json_body=variant)
+        self.assertEqual(status, 201)
+
+        # User should see it in /api/workflows (dept-scoped visibility).
+        user_cookie = self.login("user", "user")
+        status, _, data = self.http("GET", "/api/workflows", cookie=user_cookie)
+        self.assertEqual(status, 200)
+        keys = {it["key"] for it in (data["items"] or [])}
+        self.assertIn("purchase_it", keys)
+
+        # Creating a purchase request without specifying workflow should pick the dept default.
+        status, _, created = self.http(
+            "POST",
+            "/api/requests",
+            cookie=user_cookie,
+            json_body={
+                "type": "purchase",
+                "title": "",
+                "body": "",
+                "payload": {"items": [{"name": "Mouse", "qty": 1, "unit_price": 100}], "reason": "work"},
+            },
+        )
+        self.assertEqual(status, 201)
+        self.assertEqual(created["workflow"]["key"], "purchase_it")
+
+        # Admin can delete it.
+        status, _, _ = self.http("POST", "/api/admin/workflows/delete", cookie=admin_cookie, json_body={"workflow_key": "purchase_it"})
+        self.assertEqual(status, 204)
+
     def test_leave_flow(self):
         user_cookie = self.login("user", "user")
         status, _, created = self.http(

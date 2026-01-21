@@ -667,6 +667,100 @@ def list_available_workflow_variants(conn: sqlite3.Connection, *, dept: str | No
     ).fetchall()
 
 
+def upsert_workflow_variant(
+    conn: sqlite3.Connection,
+    *,
+    workflow_key: str,
+    request_type: str,
+    name: str,
+    category: str,
+    scope_kind: str,
+    scope_value: str | None,
+    enabled: bool,
+    is_default: bool,
+) -> None:
+    now = int(time.time())
+    conn.execute(
+        """
+        INSERT INTO workflow_variants(
+          workflow_key,request_type,name,category,scope_kind,scope_value,enabled,is_default,created_at
+        )
+        VALUES(?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(workflow_key) DO UPDATE SET
+          request_type=excluded.request_type,
+          name=excluded.name,
+          category=excluded.category,
+          scope_kind=excluded.scope_kind,
+          scope_value=excluded.scope_value,
+          enabled=excluded.enabled,
+          is_default=excluded.is_default
+        """,
+        (
+            workflow_key,
+            request_type,
+            name,
+            category,
+            scope_kind,
+            scope_value,
+            1 if enabled else 0,
+            1 if is_default else 0,
+            now,
+        ),
+    )
+
+    if is_default:
+        if scope_kind == "dept":
+            conn.execute(
+                """
+                UPDATE workflow_variants
+                SET is_default=0
+                WHERE request_type=? AND scope_kind='dept' AND scope_value=? AND workflow_key<>?
+                """,
+                (request_type, scope_value, workflow_key),
+            )
+        elif scope_kind == "global":
+            conn.execute(
+                """
+                UPDATE workflow_variants
+                SET is_default=0
+                WHERE request_type=? AND scope_kind='global' AND workflow_key<>?
+                """,
+                (request_type, workflow_key),
+            )
+
+
+def replace_workflow_variant_steps(conn: sqlite3.Connection, workflow_key: str, steps: list[dict]) -> None:
+    now = int(time.time())
+    conn.execute("DELETE FROM workflow_variant_steps WHERE workflow_key = ?", (workflow_key,))
+    for s in steps:
+        conn.execute(
+            """
+            INSERT INTO workflow_variant_steps(
+              workflow_key,step_order,step_key,assignee_kind,assignee_value,condition_kind,condition_value,created_at
+            )
+            VALUES(?,?,?,?,?,?,?,?)
+            """,
+            (
+                workflow_key,
+                int(s["step_order"]),
+                str(s["step_key"]),
+                str(s["assignee_kind"]),
+                None if s.get("assignee_value") is None else str(s.get("assignee_value")),
+                None if s.get("condition_kind") is None else str(s.get("condition_kind")),
+                None if s.get("condition_value") is None else str(s.get("condition_value")),
+                now,
+            ),
+        )
+
+
+def delete_workflow_variant(conn: sqlite3.Connection, workflow_key: str) -> None:
+    conn.execute("DELETE FROM workflow_variants WHERE workflow_key = ?", (workflow_key,))
+
+
+def list_workflow_variants_admin(conn: sqlite3.Connection):
+    return conn.execute("SELECT * FROM workflow_variants ORDER BY category ASC, name ASC").fetchall()
+
+
 def resolve_default_workflow_key(conn: sqlite3.Connection, request_type: str, *, dept: str | None) -> str | None:
     if dept:
         row = conn.execute(

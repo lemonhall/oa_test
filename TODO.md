@@ -9,9 +9,9 @@
 
 ## 平台能力（优先做）
 
-- [ ] 工作流管理 API（CRUD `workflow_variants` / `workflow_variant_steps`）
-- [ ] 工作流管理 UI（管理员）
-- [ ] 按部门的流程变体（scope：同一 `request_type` 不同部门不同审批链）
+- [x] 工作流管理 API（CRUD `workflow_variants` / `workflow_variant_steps`）
+- [x] 工作流管理 UI（管理员）
+- [x] 按部门的流程变体（scope：同一 `request_type` 不同部门不同审批链）
 - [ ] 更多步骤条件（例如：`max_amount`、`dept_in`、`category_in`、`days>=N`）
 - [ ] 并行会签 / 会审（ALL / ANY）
 - [ ] 退回修改 / 重新提交
