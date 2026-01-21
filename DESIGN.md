@@ -42,6 +42,17 @@ Assignee rule (`assignee_kind`):
 - `role`: assign to a role name in `assignee_value` (e.g. `admin`)
 - `user`: assign to a specific user id in `assignee_value`
 
+## Workflow catalog (tree-ready)
+
+To support "company-wide vs department-specific" and future tree navigation, workflows now have a catalog layer:
+- `workflow_variants`: a workflow "variant" identified by `workflow_key`
+  - `category`: used for grouping in UI (tree root / folder)
+  - `scope_kind/scope_value`: e.g. `global` or `dept` + dept name/value
+  - multiple variants can exist for the same `request_type` (e.g. different purchase flows per dept)
+- `workflow_variant_steps`: step definitions for a given `workflow_key`
+
+Requests store the selected `workflow_key` (so the exact process is preserved even if defaults change later).
+
 ## Request payloads (current)
 
 Some request types can store structured form data in `requests.payload_json` (JSON string), and the API also returns it as `request.payload`.

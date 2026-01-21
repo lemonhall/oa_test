@@ -11,6 +11,7 @@
 
 - [ ] Workflow editor API (CRUD `workflow_definitions` / `workflow_steps`)
 - [ ] Workflow editor UI (admin)
+- [ ] Workflow variants per department (scope)
 - [ ] More step conditions (e.g. `max_amount`, `dept_in`, `category_in`, `days>=N`)
 - [ ] Parallel approvals / countersign (ALL / ANY)
 - [ ] Return for changes / resubmit
@@ -73,4 +74,3 @@
 ### Document / Compliance
 - [ ] Document publishing (制度/公告发布)
 - [ ] Read & acknowledge (阅读确认)
-

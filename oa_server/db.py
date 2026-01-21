@@ -113,12 +113,39 @@ def init_db(db_path: Path) -> None:
               created_at INTEGER NOT NULL,
               UNIQUE(request_type, step_order)
             );
+
+            -- Workflow catalog v2: supports grouping + multiple variants per request_type (e.g. dept-specific).
+            CREATE TABLE IF NOT EXISTS workflow_variants (
+              workflow_key TEXT PRIMARY KEY,
+              request_type TEXT NOT NULL,
+              name TEXT NOT NULL,
+              category TEXT NOT NULL,
+              scope_kind TEXT NOT NULL,
+              scope_value TEXT,
+              enabled INTEGER NOT NULL,
+              is_default INTEGER NOT NULL,
+              created_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS workflow_variant_steps (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              workflow_key TEXT NOT NULL REFERENCES workflow_variants(workflow_key) ON DELETE CASCADE,
+              step_order INTEGER NOT NULL,
+              step_key TEXT NOT NULL,
+              assignee_kind TEXT NOT NULL,
+              assignee_value TEXT,
+              condition_kind TEXT,
+              condition_value TEXT,
+              created_at INTEGER NOT NULL,
+              UNIQUE(workflow_key, step_order)
+            );
             """
         )
 
         _ensure_column(conn, "users", "dept", "TEXT")
         _ensure_column(conn, "users", "manager_id", "INTEGER")
         _ensure_column(conn, "requests", "request_type", "TEXT NOT NULL DEFAULT 'generic'")
+        _ensure_column(conn, "requests", "workflow_key", "TEXT")
         _ensure_column(conn, "requests", "payload_json", "TEXT")
         _ensure_column(conn, "requests", "updated_at", "INTEGER")
         _ensure_column(conn, "tasks", "step_order", "INTEGER")
@@ -148,6 +175,8 @@ def init_db(db_path: Path) -> None:
 
         ensure_default_workflows(conn)
         migrate_workflows(conn)
+        ensure_workflow_variants(conn)
+        migrate_workflow_variants(conn)
 
 
 def get_user_by_username(conn: sqlite3.Connection, username: str):
@@ -214,11 +243,12 @@ def create_request(
     body: str,
     *,
     payload_json: str | None,
+    workflow_key: str | None,
 ) -> int:
     now = int(time.time())
     cur = conn.execute(
-        "INSERT INTO requests(user_id,request_type,title,body,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
-        (user_id, request_type, title, body, "pending", now, now),
+        "INSERT INTO requests(user_id,request_type,workflow_key,title,body,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+        (user_id, request_type, workflow_key, title, body, "pending", now, now),
     )
     if payload_json is not None:
         conn.execute("UPDATE requests SET payload_json=? WHERE id=?", (payload_json, int(cur.lastrowid)))
@@ -401,6 +431,126 @@ def migrate_workflows(conn: sqlite3.Connection) -> None:
         )
 
 
+def _default_category_for_request_type(request_type: str) -> str:
+    if request_type in {"leave"}:
+        return "HR"
+    if request_type in {"expense"}:
+        return "Finance"
+    if request_type in {"purchase"}:
+        return "Procurement"
+    return "General"
+
+
+def ensure_workflow_variants(conn: sqlite3.Connection) -> None:
+    existing = conn.execute("SELECT COUNT(1) AS c FROM workflow_variants").fetchone()["c"]
+    if int(existing) > 0:
+        return
+
+    legacy_defs = conn.execute("SELECT * FROM workflow_definitions ORDER BY request_type ASC").fetchall()
+    legacy_steps = conn.execute("SELECT * FROM workflow_steps ORDER BY request_type ASC, step_order ASC").fetchall()
+    if not legacy_defs:
+        return
+
+    steps_by_type: dict[str, list[sqlite3.Row]] = {}
+    for s in legacy_steps:
+        steps_by_type.setdefault(str(s["request_type"]), []).append(s)
+
+    for d in legacy_defs:
+        request_type = str(d["request_type"])
+        now = int(time.time())
+        conn.execute(
+            """
+            INSERT INTO workflow_variants(
+              workflow_key,request_type,name,category,scope_kind,scope_value,enabled,is_default,created_at
+            )
+            VALUES(?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                request_type,
+                request_type,
+                str(d["name"]),
+                _default_category_for_request_type(request_type),
+                "global",
+                None,
+                int(d["enabled"]),
+                1,
+                now,
+            ),
+        )
+
+        for s in steps_by_type.get(request_type, []):
+            conn.execute(
+                """
+                INSERT INTO workflow_variant_steps(
+                  workflow_key,step_order,step_key,assignee_kind,assignee_value,condition_kind,condition_value,created_at
+                )
+                VALUES(?,?,?,?,?,?,?,?)
+                """,
+                (
+                    request_type,
+                    int(s["step_order"]),
+                    str(s["step_key"]),
+                    str(s["assignee_kind"]),
+                    None if s["assignee_value"] is None else str(s["assignee_value"]),
+                    None if s["condition_kind"] is None else str(s["condition_kind"]),
+                    None if s["condition_value"] is None else str(s["condition_value"]),
+                    now,
+                ),
+            )
+
+
+def migrate_workflow_variants(conn: sqlite3.Connection) -> None:
+    # Mirror key legacy migrations for v2 catalog, for existing DBs that were created before v2.
+    steps = conn.execute(
+        "SELECT step_order, step_key, condition_kind FROM workflow_variant_steps WHERE workflow_key=? ORDER BY step_order ASC",
+        ("expense",),
+    ).fetchall()
+    if steps:
+        step_keys = [str(s["step_key"]) for s in steps]
+        if "gm" not in step_keys and step_keys == ["manager", "finance"]:
+            now = int(time.time())
+            conn.execute(
+                "UPDATE workflow_variant_steps SET step_order=3 WHERE workflow_key=? AND step_order=2 AND step_key='finance'",
+                ("expense",),
+            )
+            conn.execute(
+                """
+                INSERT INTO workflow_variant_steps(
+                  workflow_key,step_order,step_key,assignee_kind,assignee_value,condition_kind,condition_value,created_at
+                )
+                VALUES(?,?,?,?,?,?,?,?)
+                """,
+                ("expense", 2, "gm", "role", "admin", "min_amount", "5000", now),
+            )
+
+    has_purchase = conn.execute("SELECT 1 FROM workflow_variants WHERE workflow_key=? LIMIT 1", ("purchase",)).fetchone()
+    if not has_purchase:
+        now = int(time.time())
+        conn.execute(
+            """
+            INSERT INTO workflow_variants(
+              workflow_key,request_type,name,category,scope_kind,scope_value,enabled,is_default,created_at
+            )
+            VALUES(?,?,?,?,?,?,?,?,?)
+            """,
+            ("purchase", "purchase", "Purchase Request", "Procurement", "global", None, 1, 1, now),
+        )
+        conn.executemany(
+            """
+            INSERT INTO workflow_variant_steps(
+              workflow_key,step_order,step_key,assignee_kind,assignee_value,condition_kind,condition_value,created_at
+            )
+            VALUES(?,?,?,?,?,?,?,?)
+            """,
+            [
+                ("purchase", 1, "manager", "manager", None, None, None, now),
+                ("purchase", 2, "gm", "role", "admin", "min_amount", "20000", now),
+                ("purchase", 3, "procurement", "role", "admin", None, None, now),
+                ("purchase", 4, "finance", "role", "admin", None, None, now),
+            ],
+        )
+
+
 def list_workflows(conn: sqlite3.Connection):
     return conn.execute("SELECT * FROM workflow_definitions ORDER BY request_type ASC").fetchall()
 
@@ -414,6 +564,7 @@ def list_workflow_steps(conn: sqlite3.Connection, request_type: str):
 
 def replace_workflow_steps(conn: sqlite3.Connection, request_type: str, *, name: str | None, enabled: bool, steps: list[dict]):
     now = int(time.time())
+    # Legacy table update (kept for backward compatibility).
     conn.execute(
         """
         INSERT INTO workflow_definitions(request_type,name,enabled,created_at)
@@ -442,6 +593,109 @@ def replace_workflow_steps(conn: sqlite3.Connection, request_type: str, *, name:
                 now,
             ),
         )
+
+    # v2 catalog update (global default workflow with key=request_type).
+    conn.execute(
+        """
+        INSERT INTO workflow_variants(
+          workflow_key,request_type,name,category,scope_kind,scope_value,enabled,is_default,created_at
+        )
+        VALUES(?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(workflow_key) DO UPDATE SET
+          request_type=excluded.request_type,
+          name=excluded.name,
+          category=excluded.category,
+          scope_kind=excluded.scope_kind,
+          scope_value=excluded.scope_value,
+          enabled=excluded.enabled,
+          is_default=excluded.is_default
+        """,
+        (
+            request_type,
+            request_type,
+            name or request_type,
+            _default_category_for_request_type(request_type),
+            "global",
+            None,
+            1 if enabled else 0,
+            1,
+            now,
+        ),
+    )
+    conn.execute("DELETE FROM workflow_variant_steps WHERE workflow_key = ?", (request_type,))
+    for s in steps:
+        conn.execute(
+            """
+            INSERT INTO workflow_variant_steps(
+              workflow_key,step_order,step_key,assignee_kind,assignee_value,condition_kind,condition_value,created_at
+            )
+            VALUES(?,?,?,?,?,?,?,?)
+            """,
+            (
+                request_type,
+                int(s["step_order"]),
+                str(s["step_key"]),
+                str(s["assignee_kind"]),
+                None if s.get("assignee_value") is None else str(s["assignee_value"]),
+                None if s.get("condition_kind") is None else str(s.get("condition_kind")),
+                None if s.get("condition_value") is None else str(s.get("condition_value")),
+                now,
+            ),
+        )
+
+
+def get_workflow_variant(conn: sqlite3.Connection, workflow_key: str):
+    return conn.execute("SELECT * FROM workflow_variants WHERE workflow_key = ?", (workflow_key,)).fetchone()
+
+
+def list_available_workflow_variants(conn: sqlite3.Connection, *, dept: str | None):
+    if dept:
+        return conn.execute(
+            """
+            SELECT * FROM workflow_variants
+            WHERE enabled=1 AND (scope_kind='global' OR (scope_kind='dept' AND scope_value=?))
+            ORDER BY category ASC, name ASC
+            """,
+            (dept,),
+        ).fetchall()
+    return conn.execute(
+        """
+        SELECT * FROM workflow_variants
+        WHERE enabled=1 AND scope_kind='global'
+        ORDER BY category ASC, name ASC
+        """
+    ).fetchall()
+
+
+def resolve_default_workflow_key(conn: sqlite3.Connection, request_type: str, *, dept: str | None) -> str | None:
+    if dept:
+        row = conn.execute(
+            """
+            SELECT workflow_key FROM workflow_variants
+            WHERE request_type=? AND enabled=1 AND is_default=1 AND scope_kind='dept' AND scope_value=?
+            LIMIT 1
+            """,
+            (request_type, dept),
+        ).fetchone()
+        if row:
+            return str(row["workflow_key"])
+    row = conn.execute(
+        """
+        SELECT workflow_key FROM workflow_variants
+        WHERE request_type=? AND enabled=1 AND is_default=1 AND scope_kind='global'
+        LIMIT 1
+        """,
+        (request_type,),
+    ).fetchone()
+    return None if not row else str(row["workflow_key"])
+
+
+def list_workflow_variant_steps(conn: sqlite3.Connection, workflow_key: str):
+    return conn.execute(
+        "SELECT * FROM workflow_variant_steps WHERE workflow_key = ? ORDER BY step_order ASC",
+        (workflow_key,),
+    ).fetchall()
+
 
 
 def add_request_event(
@@ -480,6 +734,10 @@ def list_requests(conn: sqlite3.Connection, user_id: int, is_admin: bool):
               r.*,
               u.username AS owner_username,
               d.username AS decided_by_username,
+              wf.name AS workflow_name,
+              wf.category AS workflow_category,
+              wf.scope_kind AS workflow_scope_kind,
+              wf.scope_value AS workflow_scope_value,
               t.id AS pending_task_id,
               t.step_key AS pending_step_key,
               t.assignee_user_id AS pending_assignee_user_id,
@@ -488,6 +746,7 @@ def list_requests(conn: sqlite3.Connection, user_id: int, is_admin: bool):
             FROM requests r
             JOIN users u ON u.id = r.user_id
             LEFT JOIN users d ON d.id = r.decided_by
+            LEFT JOIN workflow_variants wf ON wf.workflow_key = r.workflow_key
             LEFT JOIN tasks t ON t.id = (
               SELECT id FROM tasks
               WHERE request_id = r.id AND status='pending'
@@ -504,6 +763,10 @@ def list_requests(conn: sqlite3.Connection, user_id: int, is_admin: bool):
           r.*,
           u.username AS owner_username,
           d.username AS decided_by_username,
+          wf.name AS workflow_name,
+          wf.category AS workflow_category,
+          wf.scope_kind AS workflow_scope_kind,
+          wf.scope_value AS workflow_scope_value,
           t.id AS pending_task_id,
           t.step_key AS pending_step_key,
           t.assignee_user_id AS pending_assignee_user_id,
@@ -512,6 +775,7 @@ def list_requests(conn: sqlite3.Connection, user_id: int, is_admin: bool):
         FROM requests r
         JOIN users u ON u.id = r.user_id
         LEFT JOIN users d ON d.id = r.decided_by
+        LEFT JOIN workflow_variants wf ON wf.workflow_key = r.workflow_key
         LEFT JOIN tasks t ON t.id = (
           SELECT id FROM tasks
           WHERE request_id = r.id AND status='pending'
@@ -532,6 +796,10 @@ def get_request(conn: sqlite3.Connection, request_id: int):
           r.*,
           u.username AS owner_username,
           d.username AS decided_by_username,
+          wf.name AS workflow_name,
+          wf.category AS workflow_category,
+          wf.scope_kind AS workflow_scope_kind,
+          wf.scope_value AS workflow_scope_value,
           t.id AS pending_task_id,
           t.step_key AS pending_step_key,
           t.assignee_user_id AS pending_assignee_user_id,
@@ -540,6 +808,7 @@ def get_request(conn: sqlite3.Connection, request_id: int):
         FROM requests r
         JOIN users u ON u.id = r.user_id
         LEFT JOIN users d ON d.id = r.decided_by
+        LEFT JOIN workflow_variants wf ON wf.workflow_key = r.workflow_key
         LEFT JOIN tasks t ON t.id = (
           SELECT id FROM tasks
           WHERE request_id = r.id AND status='pending'

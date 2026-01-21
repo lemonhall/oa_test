@@ -274,6 +274,29 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
 
+            if path == "/api/workflows":
+                user = self._require_user()
+                with db.connect(self.server.db_path) as conn:
+                    rows = db.list_available_workflow_variants(conn, dept=user.dept)
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "items": [
+                            {
+                                "key": str(r["workflow_key"]),
+                                "request_type": str(r["request_type"]),
+                                "name": str(r["name"]),
+                                "category": str(r["category"]),
+                                "scope_kind": str(r["scope_kind"]),
+                                "scope_value": None if r["scope_value"] is None else str(r["scope_value"]),
+                                "is_default": bool(int(r["is_default"])),
+                            }
+                            for r in rows
+                        ]
+                    },
+                )
+                return
+
             if path == "/api/requests":
                 user = self._require_user()
                 params = parse_qs(query or "")
@@ -383,6 +406,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/requests":
                 user = self._require_user()
                 payload = _read_json(self) or {}
+                requested_workflow = payload.get("workflow")
                 request_type = str(payload.get("type", "generic")).strip() or "generic"
                 title = str(payload.get("title", "")).strip()
                 body = str(payload.get("body", "")).strip()
@@ -390,29 +414,49 @@ class Handler(BaseHTTPRequestHandler):
                 if req_payload is not None and not isinstance(req_payload, dict):
                     self._send_error(HTTPStatus.BAD_REQUEST, "invalid_payload")
                     return
-                try:
-                    title, body, payload_json = _build_request_from_payload(
-                        request_type,
-                        title=title,
-                        body=body,
-                        payload=req_payload,
-                    )
-                except ValueError:
-                    self._send_error(HTTPStatus.BAD_REQUEST, "invalid_payload")
-                    return
-                if not title or not body:
-                    self._send_error(HTTPStatus.BAD_REQUEST, "missing_fields")
-                    return
                 with db.connect(self.server.db_path) as conn:
-                    request_id = db.create_request(conn, user.id, request_type, title, body, payload_json=payload_json)
+                    workflow_key = None
+                    if requested_workflow:
+                        wf = db.get_workflow_variant(conn, str(requested_workflow))
+                        if not wf or int(wf["enabled"]) != 1:
+                            self._send_error(HTTPStatus.BAD_REQUEST, "invalid_workflow")
+                            return
+                        request_type = str(wf["request_type"])
+                        workflow_key = str(wf["workflow_key"])
+                    else:
+                        workflow_key = db.resolve_default_workflow_key(conn, request_type, dept=user.dept) or request_type
+
+                    try:
+                        title, body, payload_json = _build_request_from_payload(
+                            request_type,
+                            title=title,
+                            body=body,
+                            payload=req_payload,
+                        )
+                    except ValueError:
+                        self._send_error(HTTPStatus.BAD_REQUEST, "invalid_payload")
+                        return
+                    if not title or not body:
+                        self._send_error(HTTPStatus.BAD_REQUEST, "missing_fields")
+                        return
+
+                    request_id = db.create_request(
+                        conn,
+                        user.id,
+                        request_type,
+                        title,
+                        body,
+                        payload_json=payload_json,
+                        workflow_key=workflow_key,
+                    )
                     db.add_request_event(
                         conn,
                         request_id,
                         event_type="created",
                         actor_user_id=user.id,
-                        message=f"type={request_type}",
+                        message=f"type={request_type} workflow={workflow_key}",
                     )
-                    _create_initial_task(conn, request_id, creator=user, request_type=request_type)
+                    _create_initial_task(conn, request_id, creator=user, request_type=request_type, workflow_key=workflow_key)
                     row = db.get_request(conn, request_id)
                 self._send_json(HTTPStatus.CREATED, _row_to_request(row))
                 return
@@ -557,9 +601,27 @@ def _row_to_request(row) -> dict[str, Any]:
             payload_obj = json.loads(str(row["payload_json"]))
         except Exception:
             payload_obj = None
+    keys = set(row.keys())
     return {
         "id": int(row["id"]),
         "type": str(row["request_type"]) if "request_type" in row.keys() else "generic",
+        "workflow": (
+            None
+            if "workflow_key" not in keys or row["workflow_key"] is None
+            else {
+                "key": str(row["workflow_key"]),
+                "name": None if "workflow_name" not in keys or row["workflow_name"] is None else str(row["workflow_name"]),
+                "category": None
+                if "workflow_category" not in keys or row["workflow_category"] is None
+                else str(row["workflow_category"]),
+                "scope_kind": None
+                if "workflow_scope_kind" not in keys or row["workflow_scope_kind"] is None
+                else str(row["workflow_scope_kind"]),
+                "scope_value": None
+                if "workflow_scope_value" not in keys or row["workflow_scope_value"] is None
+                else str(row["workflow_scope_value"]),
+            }
+        ),
         "title": str(row["title"]),
         "body": str(row["body"]),
         "payload": payload_obj,
@@ -650,8 +712,18 @@ def _row_to_user(row) -> dict[str, Any]:
     }
 
 
-def _create_initial_task(conn, request_id: int, *, creator: AuthenticatedUser, request_type: str) -> None:
-    _start_workflow(conn, request_id, creator=creator, request_type=request_type)
+def _create_initial_task(
+    conn,
+    request_id: int,
+    *,
+    creator: AuthenticatedUser,
+    request_type: str,
+    workflow_key: str | None,
+) -> None:
+    wk = workflow_key
+    if not wk:
+        wk = db.resolve_default_workflow_key(conn, request_type, dept=creator.dept) or request_type
+    _start_workflow(conn, request_id, creator=creator, request_type=request_type, workflow_key=wk)
 
 def _resolve_assignee(creator: AuthenticatedUser, step_row) -> tuple[int | None, str | None]:
     kind = str(step_row["assignee_kind"])
@@ -667,10 +739,12 @@ def _resolve_assignee(creator: AuthenticatedUser, step_row) -> tuple[int | None,
     return (None, "admin")
 
 
-def _start_workflow(conn, request_id: int, *, creator: AuthenticatedUser, request_type: str) -> None:
-    steps = db.list_workflow_steps(conn, request_type)
+def _start_workflow(conn, request_id: int, *, creator: AuthenticatedUser, request_type: str, workflow_key: str) -> None:
+    steps = db.list_workflow_variant_steps(conn, workflow_key)
+    if not steps and workflow_key != request_type:
+        steps = db.list_workflow_variant_steps(conn, request_type)
     if not steps:
-        steps = db.list_workflow_steps(conn, "generic")
+        steps = db.list_workflow_variant_steps(conn, "generic")
     if not steps:
         step_order = 1
         step_key = "admin"
@@ -738,9 +812,14 @@ def _decide_task(conn, user: AuthenticatedUser, task_id: int, *, decision: str, 
         return db.get_request(conn, int(task["request_id"]))
 
     request_type = str(req["request_type"])
-    steps = db.list_workflow_steps(conn, request_type)
+    workflow_key = str(req["workflow_key"]) if "workflow_key" in req.keys() and req["workflow_key"] else None
+    if not workflow_key:
+        workflow_key = db.resolve_default_workflow_key(conn, request_type, dept=user.dept) or request_type
+    steps = db.list_workflow_variant_steps(conn, workflow_key)
+    if not steps and workflow_key != request_type:
+        steps = db.list_workflow_variant_steps(conn, request_type)
     if not steps:
-        steps = db.list_workflow_steps(conn, "generic")
+        steps = db.list_workflow_variant_steps(conn, "generic")
 
     current_order = task["step_order"]
     if current_order is None:

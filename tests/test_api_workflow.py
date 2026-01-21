@@ -79,6 +79,13 @@ class APITestCase(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(me["role"], "admin")
 
+    def test_workflow_catalog_list(self):
+        cookie = self.login("admin", "admin")
+        status, _, data = self.http("GET", "/api/workflows", cookie=cookie)
+        self.assertEqual(status, 200)
+        keys = {it["key"] for it in (data["items"] or [])}
+        self.assertTrue({"leave", "expense", "purchase", "generic"}.issubset(keys))
+
     def test_leave_flow(self):
         user_cookie = self.login("user", "user")
         status, _, created = self.http(

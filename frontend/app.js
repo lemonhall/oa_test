@@ -55,6 +55,8 @@ function stepText(step) {
 
 let currentMe = null;
 let currentTab = "create";
+let workflowItems = [];
+let workflowsByKey = {};
 
 function setTab(tab) {
   currentTab = tab;
@@ -72,6 +74,55 @@ function showCreateFields(type) {
   $("#leaveFields").hidden = type !== "leave";
   $("#expenseFields").hidden = type !== "expense";
   $("#purchaseFields").hidden = type !== "purchase";
+}
+
+function groupWorkflows(items) {
+  const groups = new Map();
+  for (const w of items) {
+    const cat = w.category || "Other";
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat).push(w);
+  }
+  return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function optionLabel(w) {
+  const scope = w.scope_kind === "dept" ? `部门：${w.scope_value}` : "公司通用";
+  return `${w.name}（${scope}）`;
+}
+
+async function loadWorkflows() {
+  const data = await api("/api/workflows");
+  workflowItems = data.items || [];
+  workflowsByKey = {};
+  for (const w of workflowItems) workflowsByKey[w.key] = w;
+
+  const sel = $("#workflowKey");
+  sel.innerHTML = "";
+  const groups = groupWorkflows(workflowItems);
+  for (const [cat, items] of groups) {
+    const og = document.createElement("optgroup");
+    og.label = cat;
+    for (const w of items) {
+      const opt = document.createElement("option");
+      opt.value = w.key;
+      opt.textContent = optionLabel(w);
+      og.appendChild(opt);
+    }
+    sel.appendChild(og);
+  }
+
+  let defaultKey = workflowItems.find((w) => w.is_default)?.key || workflowItems[0]?.key;
+  if (defaultKey) sel.value = defaultKey;
+  onWorkflowChanged();
+}
+
+function onWorkflowChanged() {
+  const sel = $("#workflowKey");
+  const wf = workflowsByKey[sel.value];
+  if (!wf) return;
+  $("#workflowHint").textContent = `${wf.category} / ${wf.request_type} / ${wf.key}`;
+  showCreateFields(wf.request_type);
 }
 
 async function refreshMe() {
@@ -131,6 +182,10 @@ function renderRequests(list, items) {
     tBadge.className = "badge";
     tBadge.textContent = typeText(item.type);
 
+    const wfBadge = document.createElement("span");
+    wfBadge.className = "badge";
+    wfBadge.textContent = item.workflow?.name || item.workflow?.key || "";
+
     const title = document.createElement("div");
     title.className = "item-title";
     title.textContent = item.title;
@@ -148,6 +203,7 @@ function renderRequests(list, items) {
 
     top.appendChild(sBadge);
     top.appendChild(tBadge);
+    if (wfBadge.textContent) top.appendChild(wfBadge);
     top.appendChild(title);
     top.appendChild(owner);
     top.appendChild(spacer);
@@ -438,6 +494,9 @@ async function refreshAll() {
   $("#usersTabBtn").hidden = currentMe.role !== "admin";
   $("#scopeWrap").hidden = currentMe.role !== "admin";
 
+  if (!workflowItems.length) {
+    await loadWorkflows().catch(() => {});
+  }
   setTab(currentTab);
 }
 
@@ -469,13 +528,13 @@ $("#refreshInboxBtn").onclick = refreshInbox;
 $("#refreshUsersBtn").onclick = refreshUsers;
 $("#scopeAll").onchange = refreshRequests;
 
-$("#reqType").onchange = () => {
-  showCreateFields($("#reqType").value);
-};
+$("#workflowKey").onchange = onWorkflowChanged;
 
 $("#createBtn").onclick = async () => {
   setError($("#createError"), "");
-  const type = $("#reqType").value;
+  const wfKey = $("#workflowKey").value;
+  const wf = workflowsByKey[wfKey];
+  const type = wf?.request_type || "generic";
   let title = $("#reqTitle").value.trim();
   let body = $("#reqBody").value.trim();
   let payload = null;
@@ -524,7 +583,7 @@ $("#createBtn").onclick = async () => {
   }
 
   try {
-    await api("/api/requests", { method: "POST", body: { type, title, body, payload } });
+    await api("/api/requests", { method: "POST", body: { workflow: wfKey, type, title, body, payload } });
     $("#reqTitle").value = "";
     $("#reqBody").value = "";
     $("#leaveReason").value = "";
@@ -543,5 +602,4 @@ $("#createBtn").onclick = async () => {
   }
 };
 
-showCreateFields($("#reqType").value);
 refreshAll();
