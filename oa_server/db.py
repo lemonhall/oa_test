@@ -475,6 +475,22 @@ def ensure_default_workflows(conn: sqlite3.Connection) -> None:
         "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
         ("purchase", "Purchase Request", 1, now),
     )
+    for rt, name in [
+        ("overtime", "加班申请"),
+        ("attendance_correction", "补卡/改卡申请"),
+        ("business_trip", "出差申请"),
+        ("outing", "外出申请"),
+        ("travel_expense", "差旅报销"),
+        ("onboarding", "入职流程"),
+        ("probation", "转正流程"),
+        ("resignation", "离职流程"),
+        ("job_transfer", "调岗流程"),
+        ("salary_adjustment", "调薪流程"),
+    ]:
+        conn.execute(
+            "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
+            (rt, name, 1, now),
+        )
 
     conn.executemany(
         """
@@ -491,6 +507,35 @@ def ensure_default_workflows(conn: sqlite3.Connection) -> None:
             ("purchase", 2, "gm", "role", "admin", "min_amount", "20000", now),
             ("purchase", 3, "procurement", "role", "admin", None, None, now),
             ("purchase", 4, "finance", "role", "admin", None, None, now),
+            ("overtime", 1, "manager", "manager", None, None, None, now),
+            ("overtime", 2, "hr", "role", "admin", None, None, now),
+            ("overtime", 3, "admin", "role", "admin", None, None, now),
+            ("attendance_correction", 1, "manager", "manager", None, None, None, now),
+            ("attendance_correction", 2, "hr", "role", "admin", None, None, now),
+            ("attendance_correction", 3, "admin", "role", "admin", None, None, now),
+            ("business_trip", 1, "manager", "manager", None, None, None, now),
+            ("business_trip", 2, "hr", "role", "admin", None, None, now),
+            ("business_trip", 3, "admin", "role", "admin", None, None, now),
+            ("outing", 1, "manager", "manager", None, None, None, now),
+            ("outing", 2, "hr", "role", "admin", None, None, now),
+            ("outing", 3, "admin", "role", "admin", None, None, now),
+            ("travel_expense", 1, "manager", "manager", None, None, None, now),
+            ("travel_expense", 2, "finance", "role", "admin", None, None, now),
+            ("travel_expense", 3, "admin", "role", "admin", None, None, now),
+            ("onboarding", 1, "hr", "role", "admin", None, None, now),
+            ("onboarding", 2, "admin", "role", "admin", None, None, now),
+            ("probation", 1, "manager", "manager", None, None, None, now),
+            ("probation", 2, "hr", "role", "admin", None, None, now),
+            ("probation", 3, "admin", "role", "admin", None, None, now),
+            ("resignation", 1, "manager", "manager", None, None, None, now),
+            ("resignation", 2, "hr", "role", "admin", None, None, now),
+            ("resignation", 3, "admin", "role", "admin", None, None, now),
+            ("job_transfer", 1, "manager", "manager", None, None, None, now),
+            ("job_transfer", 2, "hr", "role", "admin", None, None, now),
+            ("job_transfer", 3, "admin", "role", "admin", None, None, now),
+            ("salary_adjustment", 1, "manager", "manager", None, None, None, now),
+            ("salary_adjustment", 2, "hr", "role", "admin", None, None, now),
+            ("salary_adjustment", 3, "admin", "role", "admin", None, None, now),
         ],
     )
 
@@ -498,34 +543,28 @@ def ensure_default_workflows(conn: sqlite3.Connection) -> None:
 def migrate_workflows(conn: sqlite3.Connection) -> None:
     # Narrow migration: upgrade legacy expense flow (manager -> finance) to support a GM threshold step:
     # manager -> gm(min_amount=5000) -> finance
+    now = int(time.time())
+
     steps = conn.execute(
         "SELECT step_order, step_key, condition_kind FROM workflow_steps WHERE request_type=? ORDER BY step_order ASC",
         ("expense",),
     ).fetchall()
-    if not steps:
-        return
-    step_keys = [str(s["step_key"]) for s in steps]
-    if "gm" in step_keys:
-        return
-    if step_keys != ["manager", "finance"]:
-        return
-    if any(s["condition_kind"] is not None for s in steps):
-        return
-
-    now = int(time.time())
-    conn.execute(
-        "UPDATE workflow_steps SET step_order=3 WHERE request_type=? AND step_order=2 AND step_key='finance'",
-        ("expense",),
-    )
-    conn.execute(
-        """
-        INSERT INTO workflow_steps(
-          request_type,step_order,step_key,assignee_kind,assignee_value,condition_kind,condition_value,created_at
-        )
-        VALUES(?,?,?,?,?,?,?,?)
-        """,
-        ("expense", 2, "gm", "role", "admin", "min_amount", "5000", now),
-    )
+    if steps:
+        step_keys = [str(s["step_key"]) for s in steps]
+        if "gm" not in step_keys and step_keys == ["manager", "finance"] and not any(s["condition_kind"] is not None for s in steps):
+            conn.execute(
+                "UPDATE workflow_steps SET step_order=3 WHERE request_type=? AND step_order=2 AND step_key='finance'",
+                ("expense",),
+            )
+            conn.execute(
+                """
+                INSERT INTO workflow_steps(
+                  request_type,step_order,step_key,assignee_kind,assignee_value,condition_kind,condition_value,created_at
+                )
+                VALUES(?,?,?,?,?,?,?,?)
+                """,
+                ("expense", 2, "gm", "role", "admin", "min_amount", "5000", now),
+            )
 
     # Ensure purchase workflow exists for older DBs.
     has_purchase = conn.execute(
@@ -552,11 +591,63 @@ def migrate_workflows(conn: sqlite3.Connection) -> None:
             ],
         )
 
+    def _ensure_legacy_workflow(request_type: str, name: str, steps: list[tuple[int, str, str, str | None]]) -> None:
+        has_def = conn.execute(
+            "SELECT 1 FROM workflow_definitions WHERE request_type=? LIMIT 1",
+            (request_type,),
+        ).fetchone()
+        if not has_def:
+            conn.execute(
+                "INSERT INTO workflow_definitions(request_type,name,enabled,created_at) VALUES(?,?,?,?)",
+                (request_type, name, 1, now),
+            )
+
+        has_steps = conn.execute("SELECT 1 FROM workflow_steps WHERE request_type=? LIMIT 1", (request_type,)).fetchone()
+        if has_steps:
+            return
+        conn.executemany(
+            """
+            INSERT INTO workflow_steps(
+              request_type,step_order,step_key,assignee_kind,assignee_value,condition_kind,condition_value,created_at
+            )
+            VALUES(?,?,?,?,?,?,?,?)
+            """,
+            [(request_type, order, step_key, assignee_kind, assignee_value, None, None, now) for order, step_key, assignee_kind, assignee_value in steps],
+        )
+
+    # Ensure HR/Admin workflow catalog exists for older DBs.
+    for rt, name, steps in [
+        ("overtime", "加班申请", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("attendance_correction", "补卡/改卡申请", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("business_trip", "出差申请", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("outing", "外出申请", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("travel_expense", "差旅报销", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("onboarding", "入职流程", [(1, "hr", "role", "admin"), (2, "admin", "role", "admin")]),
+        ("probation", "转正流程", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("resignation", "离职流程", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("job_transfer", "调岗流程", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("salary_adjustment", "调薪流程", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+    ]:
+        _ensure_legacy_workflow(rt, name, steps)
+
 
 def _default_category_for_request_type(request_type: str) -> str:
-    if request_type in {"leave"}:
-        return "HR"
+    if request_type in {
+        "leave",
+        "overtime",
+        "attendance_correction",
+        "business_trip",
+        "outing",
+        "onboarding",
+        "probation",
+        "resignation",
+        "job_transfer",
+        "salary_adjustment",
+    }:
+        return "HR/Admin"
     if request_type in {"expense"}:
+        return "Finance"
+    if request_type in {"travel_expense"}:
         return "Finance"
     if request_type in {"purchase"}:
         return "Procurement"
@@ -671,6 +762,57 @@ def migrate_workflow_variants(conn: sqlite3.Connection) -> None:
                 ("purchase", 4, "finance", "role", "admin", None, None, now),
             ],
         )
+
+    def _ensure_variant_workflow(workflow_key: str, request_type: str, name: str, steps: list[tuple[int, str, str, str | None]]) -> None:
+        has = conn.execute("SELECT 1 FROM workflow_variants WHERE workflow_key=? LIMIT 1", (workflow_key,)).fetchone()
+        now = int(time.time())
+        if not has:
+            conn.execute(
+                """
+                INSERT INTO workflow_variants(
+                  workflow_key,request_type,name,category,scope_kind,scope_value,enabled,is_default,created_at
+                )
+                VALUES(?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    workflow_key,
+                    request_type,
+                    name,
+                    _default_category_for_request_type(request_type),
+                    "global",
+                    None,
+                    1,
+                    1,
+                    now,
+                ),
+            )
+        has_steps = conn.execute("SELECT 1 FROM workflow_variant_steps WHERE workflow_key=? LIMIT 1", (workflow_key,)).fetchone()
+        if has_steps:
+            return
+        conn.executemany(
+            """
+            INSERT INTO workflow_variant_steps(
+              workflow_key,step_order,step_key,assignee_kind,assignee_value,condition_kind,condition_value,created_at
+            )
+            VALUES(?,?,?,?,?,?,?,?)
+            """,
+            [(workflow_key, order, step_key, assignee_kind, assignee_value, None, None, now) for order, step_key, assignee_kind, assignee_value in steps],
+        )
+
+    # Ensure HR/Admin workflows exist in v2 catalog for existing DBs.
+    for rt, name, steps in [
+        ("overtime", "加班申请", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("attendance_correction", "补卡/改卡申请", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("business_trip", "出差申请", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("outing", "外出申请", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("travel_expense", "差旅报销", [(1, "manager", "manager", None), (2, "finance", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("onboarding", "入职流程", [(1, "hr", "role", "admin"), (2, "admin", "role", "admin")]),
+        ("probation", "转正流程", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("resignation", "离职流程", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("job_transfer", "调岗流程", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+        ("salary_adjustment", "调薪流程", [(1, "manager", "manager", None), (2, "hr", "role", "admin"), (3, "admin", "role", "admin")]),
+    ]:
+        _ensure_variant_workflow(rt, rt, name, steps)
 
 
 def list_workflows(conn: sqlite3.Connection):

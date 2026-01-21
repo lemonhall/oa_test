@@ -94,6 +94,21 @@ class APITestCase(unittest.TestCase):
         self.assertIn(b"/api/requests/", js)
         self.assertIn(b"/attachments", js)
 
+    def test_static_hr_admin_forms_ui_wiring(self):
+        status, _, body = self.http("GET", "/", expect_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b'id="overtimeFields"', body)
+        self.assertIn(b'id="attendanceFields"', body)
+        self.assertIn(b'id="businessTripFields"', body)
+        self.assertIn(b'id="travelExpenseFields"', body)
+        self.assertIn(b'id="salaryAdjustFields"', body)
+
+        status, _, js = self.http("GET", "/app.js", expect_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b"attendance_correction", js)
+        self.assertIn(b"travel_expense", js)
+        self.assertIn(b"salary_adjustment", js)
+
     def test_static_roles_ui_wiring(self):
         status, _, body = self.http("GET", "/", expect_json=False)
         self.assertEqual(status, 200)
@@ -283,6 +298,115 @@ class APITestCase(unittest.TestCase):
         self.assertEqual(status, 200)
         keys = {it["key"] for it in (data["items"] or [])}
         self.assertTrue({"leave", "expense", "purchase", "generic"}.issubset(keys))
+
+    def test_hr_admin_workflows_exist_and_can_create(self):
+        user_cookie = self.login("user", "user")
+        admin_cookie = self.login("admin", "admin")
+
+        hr_types = [
+            ("overtime", "manager"),
+            ("attendance_correction", "manager"),
+            ("business_trip", "manager"),
+            ("outing", "manager"),
+            ("travel_expense", "manager"),
+            ("onboarding", "hr"),
+            ("probation", "manager"),
+            ("resignation", "manager"),
+            ("job_transfer", "manager"),
+            ("salary_adjustment", "manager"),
+        ]
+
+        status, _, data = self.http("GET", "/api/workflows", cookie=user_cookie)
+        self.assertEqual(status, 200)
+        keys = {it["key"] for it in (data["items"] or [])}
+        for t, _ in hr_types:
+            self.assertIn(t, keys)
+
+        for t, expected_step in hr_types:
+            status, _, created = self.http(
+                "POST",
+                "/api/requests",
+                cookie=user_cookie,
+                json_body={"type": t, "title": f"{t} title", "body": "b"},
+            )
+            self.assertEqual(status, 201)
+            req_id = created["id"]
+
+            status, _, inbox = self.http("GET", "/api/inbox", cookie=admin_cookie)
+            tasks = [it for it in inbox["items"] if it["request"]["id"] == req_id]
+            self.assertTrue(tasks)
+            self.assertEqual(tasks[0]["task"]["step_key"], expected_step)
+
+    def test_migrate_adds_hr_admin_workflows_to_existing_db(self):
+        # Simulate an existing DB that is missing the newer HR/Admin workflow catalog entries.
+        db_path = Path("data") / f"_mig_{int(time.time())}_{os.getpid()}_{uuid.uuid4().hex}.sqlite3"
+        db.init_db(db_path)
+
+        hr_keys = [
+            "overtime",
+            "attendance_correction",
+            "business_trip",
+            "outing",
+            "travel_expense",
+            "onboarding",
+            "probation",
+            "resignation",
+            "job_transfer",
+            "salary_adjustment",
+        ]
+
+        with db.connect(db_path) as conn:
+            for k in hr_keys:
+                conn.execute("DELETE FROM workflow_variant_steps WHERE workflow_key=?", (k,))
+                conn.execute("DELETE FROM workflow_variants WHERE workflow_key=?", (k,))
+                conn.execute("DELETE FROM workflow_steps WHERE request_type=?", (k,))
+                conn.execute("DELETE FROM workflow_definitions WHERE request_type=?", (k,))
+
+        db.init_db(db_path)
+        with db.connect(db_path) as conn:
+            rows = db.list_available_workflow_variants(conn, dept=None)
+            keys = {str(r["workflow_key"]) for r in rows}
+            for k in hr_keys:
+                self.assertIn(k, keys)
+
+    def test_hr_admin_payload_validation_and_title_autofill(self):
+        user_cookie = self.login("user", "user")
+
+        cases = [
+            ("overtime", {"date": "2026-01-02", "hours": 2.5, "reason": "项目上线支持"}, "加班："),
+            ("attendance_correction", {"date": "2026-01-03", "kind": "in", "time": "09:01", "reason": "忘记打卡"}, "补卡："),
+            ("business_trip", {"start_date": "2026-01-04", "end_date": "2026-01-06", "destination": "上海", "purpose": "客户拜访"}, "出差："),
+            ("outing", {"date": "2026-01-07", "start_time": "14:00", "end_time": "16:30", "destination": "银行", "reason": "业务办理"}, "外出："),
+            ("travel_expense", {"start_date": "2026-01-04", "end_date": "2026-01-06", "amount": 123.45, "reason": "差旅报销"}, "差旅报销："),
+            ("onboarding", {"name": "张三", "start_date": "2026-01-08", "dept": "研发", "position": "工程师"}, "入职："),
+            ("probation", {"name": "李四", "start_date": "2025-10-01", "end_date": "2026-01-01", "result": "pass", "comment": "表现良好"}, "转正："),
+            ("resignation", {"name": "王五", "last_day": "2026-02-01", "reason": "个人原因", "handover": "交接给赵六"}, "离职："),
+            ("job_transfer", {"name": "赵六", "from_dept": "研发", "to_dept": "产品", "effective_date": "2026-03-01", "reason": "业务调整"}, "调岗："),
+            ("salary_adjustment", {"name": "钱七", "effective_date": "2026-04-01", "from_salary": 10000, "to_salary": 12000, "reason": "绩效优秀"}, "调薪："),
+        ]
+
+        for t, payload, title_prefix in cases:
+            status, _, created = self.http(
+                "POST",
+                "/api/requests",
+                cookie=user_cookie,
+                json_body={"type": t, "title": "", "body": "", "payload": payload},
+            )
+            self.assertEqual(status, 201)
+            self.assertEqual(created["type"], t)
+            self.assertTrue(created["title"].startswith(title_prefix))
+            self.assertIsInstance(created["payload"], dict)
+            for k, v in payload.items():
+                self.assertIn(k, created["payload"])
+
+        status, _, out = self.http(
+            "POST",
+            "/api/requests",
+            cookie=user_cookie,
+            json_body={"type": "overtime", "title": "", "body": "", "payload": {"date": "2026-01-02", "reason": "x"}},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(out["error"], "invalid_payload")
 
     def test_workflow_admin_crud_and_dept_default(self):
         admin_cookie = self.login("admin", "admin")

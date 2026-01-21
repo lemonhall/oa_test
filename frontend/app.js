@@ -51,7 +51,22 @@ function statusText(status) {
 }
 
 function typeText(t) {
-  return t === "leave" ? "请假" : t === "expense" ? "报销" : t === "purchase" ? "采购" : "通用";
+  const map = {
+    leave: "请假",
+    expense: "报销",
+    purchase: "采购",
+    overtime: "加班",
+    attendance_correction: "补卡/改卡",
+    business_trip: "出差",
+    outing: "外出",
+    travel_expense: "差旅报销",
+    onboarding: "入职",
+    probation: "转正",
+    resignation: "离职",
+    job_transfer: "调岗",
+    salary_adjustment: "调薪",
+  };
+  return map[t] || "通用";
 }
 
 function stepText(step) {
@@ -59,11 +74,15 @@ function stepText(step) {
     ? "直属领导审批"
     : step === "gm"
     ? "总经理审批"
+    : step === "hr"
+    ? "人事审批"
     : step === "finance"
     ? "财务审批"
     : step === "procurement"
     ? "采购审批"
-    : "管理员审批";
+    : step === "admin"
+    ? "行政/管理员审批"
+    : "审批";
 }
 
 let currentMe = null;
@@ -89,9 +108,30 @@ function setTab(tab) {
 }
 
 function showCreateFields(type) {
-  $("#leaveFields").hidden = type !== "leave";
-  $("#expenseFields").hidden = type !== "expense";
-  $("#purchaseFields").hidden = type !== "purchase";
+  const map = {
+    leave: "leaveFields",
+    expense: "expenseFields",
+    purchase: "purchaseFields",
+    overtime: "overtimeFields",
+    attendance_correction: "attendanceFields",
+    business_trip: "businessTripFields",
+    outing: "outingFields",
+    travel_expense: "travelExpenseFields",
+    onboarding: "onboardingFields",
+    probation: "probationFields",
+    resignation: "resignationFields",
+    job_transfer: "jobTransferFields",
+    salary_adjustment: "salaryAdjustFields",
+  };
+  for (const id of Object.values(map)) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = true;
+  }
+  const target = map[type];
+  if (target) {
+    const el = document.getElementById(target);
+    if (el) el.hidden = false;
+  }
 }
 
 function groupWorkflows(items) {
@@ -830,6 +870,129 @@ $("#createBtn").onclick = async () => {
     payload = { items: [{ name, qty, unit_price }], reason, amount };
     title = title || "";
     body = body || "";
+  } else if (type === "overtime") {
+    const date = $("#overtimeDate").value;
+    const hours = Number($("#overtimeHours").value || 0);
+    const reason = $("#overtimeReason").value.trim();
+    if (!date || !hours || hours <= 0 || !reason) {
+      setError($("#createError"), "加班需要填写日期/时长/原因");
+      return;
+    }
+    payload = { date, hours, reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "attendance_correction") {
+    const date = $("#attDate").value;
+    const kind = $("#attKind").value;
+    const time = $("#attTime").value;
+    const reason = $("#attReason").value.trim();
+    if (!date || !kind || !time || !reason) {
+      setError($("#createError"), "补卡需要填写日期/类型/时间/原因");
+      return;
+    }
+    payload = { date, kind, time, reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "business_trip") {
+    const start_date = $("#tripStart").value;
+    const end_date = $("#tripEnd").value;
+    const destination = $("#tripDestination").value.trim();
+    const purpose = $("#tripPurpose").value.trim();
+    if (!start_date || !end_date || !destination || !purpose) {
+      setError($("#createError"), "出差需要填写开始/结束/目的地/事由");
+      return;
+    }
+    payload = { start_date, end_date, destination, purpose };
+    title = title || "";
+    body = body || "";
+  } else if (type === "outing") {
+    const date = $("#outingDate").value;
+    const start_time = $("#outingStart").value;
+    const end_time = $("#outingEnd").value;
+    const destination = $("#outingDestination").value.trim();
+    const reason = $("#outingReason").value.trim();
+    if (!date || !start_time || !end_time || !destination || !reason) {
+      setError($("#createError"), "外出需要填写日期/开始/结束/地点/原因");
+      return;
+    }
+    payload = { date, start_time, end_time, destination, reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "travel_expense") {
+    const start_date = $("#travelStart").value;
+    const end_date = $("#travelEnd").value;
+    const amount = Number($("#travelAmount").value || 0);
+    const reason = $("#travelReason").value.trim();
+    if (!start_date || !end_date || !amount || amount <= 0) {
+      setError($("#createError"), "差旅报销需要填写开始/结束/金额");
+      return;
+    }
+    payload = { start_date, end_date, amount, reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "onboarding") {
+    const name = $("#onboardName").value.trim();
+    const start_date = $("#onboardDate").value;
+    const dept = $("#onboardDept").value.trim();
+    const position = $("#onboardPosition").value.trim();
+    if (!name || !start_date || !dept || !position) {
+      setError($("#createError"), "入职需要填写姓名/日期/部门/岗位");
+      return;
+    }
+    payload = { name, start_date, dept, position };
+    title = title || "";
+    body = body || "";
+  } else if (type === "probation") {
+    const name = $("#probName").value.trim();
+    const start_date = $("#probStart").value;
+    const end_date = $("#probEnd").value;
+    const result = $("#probResult").value;
+    const comment = $("#probComment").value.trim();
+    if (!name || !start_date || !end_date || !result) {
+      setError($("#createError"), "转正需要填写姓名/开始/结束/结果");
+      return;
+    }
+    payload = { name, start_date, end_date, result, comment };
+    title = title || "";
+    body = body || "";
+  } else if (type === "resignation") {
+    const name = $("#resignName").value.trim();
+    const last_day = $("#resignLastDay").value;
+    const reason = $("#resignReason").value.trim();
+    const handover = $("#resignHandover").value.trim();
+    if (!name || !last_day || !reason) {
+      setError($("#createError"), "离职需要填写姓名/最后工作日/离职原因");
+      return;
+    }
+    payload = { name, last_day, reason, handover };
+    title = title || "";
+    body = body || "";
+  } else if (type === "job_transfer") {
+    const name = $("#transferName").value.trim();
+    const from_dept = $("#transferFrom").value.trim();
+    const to_dept = $("#transferTo").value.trim();
+    const effective_date = $("#transferDate").value;
+    const reason = $("#transferReason").value.trim();
+    if (!name || !from_dept || !to_dept || !effective_date) {
+      setError($("#createError"), "调岗需要填写姓名/原部门/新部门/生效日期");
+      return;
+    }
+    payload = { name, from_dept, to_dept, effective_date, reason };
+    title = title || "";
+    body = body || "";
+  } else if (type === "salary_adjustment") {
+    const name = $("#salaryName").value.trim();
+    const effective_date = $("#salaryDate").value;
+    const from_salary = Number($("#salaryFrom").value || 0);
+    const to_salary = Number($("#salaryTo").value || 0);
+    const reason = $("#salaryReason").value.trim();
+    if (!name || !effective_date || !from_salary || from_salary <= 0 || !to_salary || to_salary <= 0) {
+      setError($("#createError"), "调薪需要填写姓名/生效日期/原薪资/新薪资");
+      return;
+    }
+    payload = { name, effective_date, from_salary, to_salary, reason };
+    title = title || "";
+    body = body || "";
   } else {
     if (!title || !body) {
       setError($("#createError"), "标题和内容不能为空");
@@ -863,6 +1026,49 @@ $("#createBtn").onclick = async () => {
     $("#purchaseQty").value = "";
     $("#purchaseUnitPrice").value = "";
     $("#purchaseReason").value = "";
+    $("#overtimeDate").value = "";
+    $("#overtimeHours").value = "";
+    $("#overtimeReason").value = "";
+    $("#attDate").value = "";
+    $("#attKind").value = "in";
+    $("#attTime").value = "";
+    $("#attReason").value = "";
+    $("#tripStart").value = "";
+    $("#tripEnd").value = "";
+    $("#tripDestination").value = "";
+    $("#tripPurpose").value = "";
+    $("#outingDate").value = "";
+    $("#outingStart").value = "";
+    $("#outingEnd").value = "";
+    $("#outingDestination").value = "";
+    $("#outingReason").value = "";
+    $("#travelStart").value = "";
+    $("#travelEnd").value = "";
+    $("#travelAmount").value = "";
+    $("#travelReason").value = "";
+    $("#onboardName").value = "";
+    $("#onboardDate").value = "";
+    $("#onboardDept").value = "";
+    $("#onboardPosition").value = "";
+    $("#probName").value = "";
+    $("#probStart").value = "";
+    $("#probEnd").value = "";
+    $("#probResult").value = "pass";
+    $("#probComment").value = "";
+    $("#resignName").value = "";
+    $("#resignLastDay").value = "";
+    $("#resignReason").value = "";
+    $("#resignHandover").value = "";
+    $("#transferName").value = "";
+    $("#transferFrom").value = "";
+    $("#transferTo").value = "";
+    $("#transferDate").value = "";
+    $("#transferReason").value = "";
+    $("#salaryName").value = "";
+    $("#salaryDate").value = "";
+    $("#salaryFrom").value = "";
+    $("#salaryTo").value = "";
+    $("#salaryReason").value = "";
     currentTab = "requests";
     setTab("requests");
   } catch (e) {

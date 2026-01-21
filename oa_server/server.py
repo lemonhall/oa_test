@@ -37,6 +37,12 @@ def _is_iso_date(value: str) -> bool:
     # YYYY-MM-DD (lightweight check)
     return value[4] == "-" and value[7] == "-" and value[:4].isdigit() and value[5:7].isdigit() and value[8:10].isdigit()
 
+def _is_hhmm(value: str) -> bool:
+    if len(value) != 5:
+        return False
+    # HH:MM (lightweight check)
+    return value[2] == ":" and value[:2].isdigit() and value[3:5].isdigit()
+
 
 def _build_request_from_payload(
     request_type: str,
@@ -126,6 +132,239 @@ def _build_request_from_payload(
             title = f"采购：{first}{more} {total:g}元"
         if not body:
             body = f"原因：{reason}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "overtime":
+        date = str(payload.get("date", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        hours_raw = payload.get("hours", None)
+        try:
+            hours = float(hours_raw)
+        except Exception:
+            hours = 0.0
+        if not date or not reason or hours <= 0:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(date):
+            raise ValueError("invalid_payload")
+
+        payload = dict(payload)
+        payload["date"] = date
+        payload["reason"] = reason
+        payload["hours"] = hours
+        if not title:
+            title = f"加班：{date}（{hours:g}小时）"
+        if not body:
+            body = f"原因：{reason}"
+        return title, body, _json_dumps(payload)
+
+    if request_type == "attendance_correction":
+        date = str(payload.get("date", "")).strip()
+        kind = str(payload.get("kind", "")).strip()
+        tm = str(payload.get("time", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        if kind in {"上班", "签到"}:
+            kind = "in"
+        if kind in {"下班", "签退"}:
+            kind = "out"
+        if not date or not tm or not reason or kind not in {"in", "out"}:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(date) or not _is_hhmm(tm):
+            raise ValueError("invalid_payload")
+        kind_text = "上班" if kind == "in" else "下班"
+        if not title:
+            title = f"补卡：{date} {tm}（{kind_text}）"
+        if not body:
+            body = f"原因：{reason}"
+        payload = dict(payload)
+        payload["date"] = date
+        payload["time"] = tm
+        payload["kind"] = kind
+        payload["reason"] = reason
+        return title, body, _json_dumps(payload)
+
+    if request_type == "business_trip":
+        start_date = str(payload.get("start_date", "")).strip()
+        end_date = str(payload.get("end_date", "")).strip()
+        destination = str(payload.get("destination", "")).strip()
+        purpose = str(payload.get("purpose", "")).strip()
+        if not start_date or not end_date or not destination or not purpose:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(start_date) or not _is_iso_date(end_date):
+            raise ValueError("invalid_payload")
+        if not title:
+            title = f"出差：{destination} {start_date}~{end_date}"
+        if not body:
+            body = f"事由：{purpose}"
+        payload = dict(payload)
+        payload["start_date"] = start_date
+        payload["end_date"] = end_date
+        payload["destination"] = destination
+        payload["purpose"] = purpose
+        return title, body, _json_dumps(payload)
+
+    if request_type == "outing":
+        date = str(payload.get("date", "")).strip()
+        start_time = str(payload.get("start_time", "")).strip()
+        end_time = str(payload.get("end_time", "")).strip()
+        destination = str(payload.get("destination", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        if not date or not start_time or not end_time or not destination or not reason:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(date) or not _is_hhmm(start_time) or not _is_hhmm(end_time):
+            raise ValueError("invalid_payload")
+        if not title:
+            title = f"外出：{destination} {date} {start_time}~{end_time}"
+        if not body:
+            body = f"原因：{reason}"
+        payload = dict(payload)
+        payload["date"] = date
+        payload["start_time"] = start_time
+        payload["end_time"] = end_time
+        payload["destination"] = destination
+        payload["reason"] = reason
+        return title, body, _json_dumps(payload)
+
+    if request_type == "travel_expense":
+        start_date = str(payload.get("start_date", "")).strip()
+        end_date = str(payload.get("end_date", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        amount_raw = payload.get("amount", None)
+        try:
+            amount = float(amount_raw)
+        except Exception:
+            amount = 0.0
+        if not start_date or not end_date or amount <= 0:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(start_date) or not _is_iso_date(end_date):
+            raise ValueError("invalid_payload")
+        if not title:
+            title = f"差旅报销：{start_date}~{end_date} {amount:g}元"
+        if not body:
+            body = f"说明：{reason}" if reason else "说明：差旅报销"
+        payload = dict(payload)
+        payload["start_date"] = start_date
+        payload["end_date"] = end_date
+        payload["amount"] = amount
+        payload["reason"] = reason
+        return title, body, _json_dumps(payload)
+
+    if request_type == "onboarding":
+        name = str(payload.get("name", "")).strip()
+        start_date = str(payload.get("start_date", "")).strip()
+        dept = str(payload.get("dept", "")).strip()
+        position = str(payload.get("position", "")).strip()
+        if not name or not start_date or not dept or not position:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(start_date):
+            raise ValueError("invalid_payload")
+        if not title:
+            title = f"入职：{name}（{start_date}）"
+        if not body:
+            body = f"部门：{dept}\n岗位：{position}"
+        payload = dict(payload)
+        payload["name"] = name
+        payload["start_date"] = start_date
+        payload["dept"] = dept
+        payload["position"] = position
+        return title, body, _json_dumps(payload)
+
+    if request_type == "probation":
+        name = str(payload.get("name", "")).strip()
+        start_date = str(payload.get("start_date", "")).strip()
+        end_date = str(payload.get("end_date", "")).strip()
+        result = str(payload.get("result", "")).strip().lower()
+        comment = str(payload.get("comment", "")).strip()
+        if result in {"通过", "pass", "yes", "ok"}:
+            result = "pass"
+        if result in {"不通过", "fail", "no"}:
+            result = "fail"
+        if not name or not start_date or not end_date or result not in {"pass", "fail"}:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(start_date) or not _is_iso_date(end_date):
+            raise ValueError("invalid_payload")
+        result_text = "通过" if result == "pass" else "不通过"
+        if not title:
+            title = f"转正：{name} {start_date}~{end_date}"
+        if not body:
+            body = f"结果：{result_text}" + (f"\n说明：{comment}" if comment else "")
+        payload = dict(payload)
+        payload["name"] = name
+        payload["start_date"] = start_date
+        payload["end_date"] = end_date
+        payload["result"] = result
+        payload["comment"] = comment
+        return title, body, _json_dumps(payload)
+
+    if request_type == "resignation":
+        name = str(payload.get("name", "")).strip()
+        last_day = str(payload.get("last_day", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        handover = str(payload.get("handover", "")).strip()
+        if not name or not last_day or not reason:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(last_day):
+            raise ValueError("invalid_payload")
+        if not title:
+            title = f"离职：{name}（最后工作日 {last_day}）"
+        if not body:
+            body = f"原因：{reason}" + (f"\n交接：{handover}" if handover else "")
+        payload = dict(payload)
+        payload["name"] = name
+        payload["last_day"] = last_day
+        payload["reason"] = reason
+        payload["handover"] = handover
+        return title, body, _json_dumps(payload)
+
+    if request_type == "job_transfer":
+        name = str(payload.get("name", "")).strip()
+        from_dept = str(payload.get("from_dept", "")).strip()
+        to_dept = str(payload.get("to_dept", "")).strip()
+        effective_date = str(payload.get("effective_date", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        if not name or not from_dept or not to_dept or not effective_date:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(effective_date):
+            raise ValueError("invalid_payload")
+        if not title:
+            title = f"调岗：{name} {from_dept}→{to_dept}（{effective_date}）"
+        if not body:
+            body = f"原因：{reason}" if reason else "原因：调岗"
+        payload = dict(payload)
+        payload["name"] = name
+        payload["from_dept"] = from_dept
+        payload["to_dept"] = to_dept
+        payload["effective_date"] = effective_date
+        payload["reason"] = reason
+        return title, body, _json_dumps(payload)
+
+    if request_type == "salary_adjustment":
+        name = str(payload.get("name", "")).strip()
+        effective_date = str(payload.get("effective_date", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        from_salary_raw = payload.get("from_salary", None)
+        to_salary_raw = payload.get("to_salary", None)
+        try:
+            from_salary = float(from_salary_raw)
+        except Exception:
+            from_salary = 0.0
+        try:
+            to_salary = float(to_salary_raw)
+        except Exception:
+            to_salary = 0.0
+        if not name or not effective_date or from_salary <= 0 or to_salary <= 0:
+            raise ValueError("invalid_payload")
+        if not _is_iso_date(effective_date):
+            raise ValueError("invalid_payload")
+        if not title:
+            title = f"调薪：{name} {from_salary:g}→{to_salary:g}（{effective_date}）"
+        if not body:
+            body = f"原因：{reason}" if reason else "原因：调薪"
+        payload = dict(payload)
+        payload["name"] = name
+        payload["effective_date"] = effective_date
+        payload["from_salary"] = from_salary
+        payload["to_salary"] = to_salary
+        payload["reason"] = reason
         return title, body, _json_dumps(payload)
 
     # generic/other: store as-is if provided
