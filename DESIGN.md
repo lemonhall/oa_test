@@ -64,6 +64,19 @@ Goal: build a small but extensible OA baseline with **vanilla JS + Python (uv) +
 - Add sign: `POST /api/tasks/{id}/addsign` creates an extra task on the same step; workflow only advances when the whole step has no pending tasks.
 - Delegation (proxy approval): `POST /api/me/delegation` sets a delegate user for your user-assigned tasks; delegate can see/act in inbox.
 
+## Org (current)
+
+- Departments: `departments` table (`parent_id` supports a tree)
+- Users: `users.dept_id` + `users.position`
+- API:
+  - `POST /api/admin/departments`, `GET /api/admin/departments`
+  - `GET /api/org/tree`
+
+## Search/export (current)
+
+- `GET /api/requests` supports `q=...` (title/body substring match)
+- CSV export: `GET /api/requests?...&format=csv` returns `text/csv`
+
 ## Suggested next iterations
 
 1) Workflow config in DB (not hardcoded in code) ✅ (basic)

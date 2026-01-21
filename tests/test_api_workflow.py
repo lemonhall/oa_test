@@ -207,6 +207,76 @@ class APITestCase(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue([it for it in out["items"] if it["id"] == other_req])
 
+    def test_departments_tree_and_user_position(self):
+        admin_cookie = self.login("admin", "admin")
+
+        status, _, created = self.http(
+            "POST",
+            "/api/admin/departments",
+            cookie=admin_cookie,
+            json_body={"name": "HQ"},
+        )
+        self.assertEqual(status, 201)
+        hq_id = created["id"]
+
+        status, _, created = self.http(
+            "POST",
+            "/api/admin/departments",
+            cookie=admin_cookie,
+            json_body={"name": "IT", "parent_id": hq_id},
+        )
+        self.assertEqual(status, 201)
+        it_id = created["id"]
+
+        status, _, _ = self.http(
+            "POST",
+            "/api/users/2",
+            cookie=admin_cookie,
+            json_body={"dept_id": it_id, "position": "Engineer"},
+        )
+        self.assertEqual(status, 204)
+
+        status, _, data = self.http("GET", "/api/admin/departments", cookie=admin_cookie)
+        self.assertEqual(status, 200)
+        self.assertTrue([d for d in data["items"] if d["id"] == it_id and d["parent_id"] == hq_id])
+
+        status, _, tree = self.http("GET", "/api/org/tree", cookie=admin_cookie)
+        self.assertEqual(status, 200)
+        self.assertTrue([n for n in tree["items"] if n["name"] == "HQ" and n["children"]])
+
+        status, _, users = self.http("GET", "/api/users", cookie=admin_cookie)
+        self.assertEqual(status, 200)
+        u = [x for x in users["items"] if x["id"] == 2][0]
+        self.assertEqual(u["dept_id"], it_id)
+        self.assertEqual(u["position"], "Engineer")
+
+    def test_requests_search_and_csv_export(self):
+        admin_cookie = self.login("admin", "admin")
+        user_cookie = self.login("user", "user")
+
+        tag = uuid.uuid4().hex[:8]
+        t1 = f"alpha-{tag}"
+        t2 = f"beta-{tag}"
+        self.http("POST", "/api/requests", cookie=user_cookie, json_body={"type": "generic", "title": t1, "body": "b"})
+        self.http("POST", "/api/requests", cookie=user_cookie, json_body={"type": "generic", "title": t2, "body": "b"})
+
+        status, _, data = self.http("GET", f"/api/requests?scope=all&q={t1}", cookie=admin_cookie)
+        self.assertEqual(status, 200)
+        titles = [it["title"] for it in (data["items"] or [])]
+        self.assertIn(t1, titles)
+        self.assertNotIn(t2, titles)
+
+        status, headers, raw = self.http(
+            "GET",
+            f"/api/requests?scope=all&format=csv&q={tag}",
+            cookie=admin_cookie,
+            expect_json=False,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue((headers.get("Content-Type", "") or "").startswith("text/csv"))
+        self.assertIn(t1.encode("utf-8"), raw)
+        self.assertIn(t2.encode("utf-8"), raw)
+
     def test_workflow_catalog_list(self):
         cookie = self.login("admin", "admin")
         status, _, data = self.http("GET", "/api/workflows", cookie=cookie)

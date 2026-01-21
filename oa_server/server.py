@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import base64
+import csv
+import io
 import json
 import mimetypes
 import os
@@ -393,6 +395,43 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.OK, {"items": items})
                 return
 
+            if path == "/api/admin/departments":
+                self._require_permission("org:manage")
+                with db.connect(self.server.db_path) as conn:
+                    rows = db.list_departments(conn)
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "items": [
+                            {
+                                "id": int(r["id"]),
+                                "name": str(r["name"]),
+                                "parent_id": None if r["parent_id"] is None else int(r["parent_id"]),
+                            }
+                            for r in rows
+                        ]
+                    },
+                )
+                return
+
+            if path == "/api/org/tree":
+                self._require_user()
+                with db.connect(self.server.db_path) as conn:
+                    rows = db.list_departments(conn)
+                nodes: dict[int, dict[str, Any]] = {}
+                roots: list[dict[str, Any]] = []
+                for r in rows:
+                    did = int(r["id"])
+                    nodes[did] = {"id": did, "name": str(r["name"]), "children": [], "parent_id": None if r["parent_id"] is None else int(r["parent_id"])}
+                for n in nodes.values():
+                    pid = n["parent_id"]
+                    if pid is not None and pid in nodes:
+                        nodes[pid]["children"].append(n)
+                    else:
+                        roots.append(n)
+                self._send_json(HTTPStatus.OK, {"items": roots})
+                return
+
             if path.startswith("/api/admin/workflows/"):
                 self._require_permission("workflows:manage")
                 workflow_key = path.split("/", 4)[-1]
@@ -434,6 +473,8 @@ class Handler(BaseHTTPRequestHandler):
                 user = self._require_user()
                 params = parse_qs(query or "")
                 scope = (params.get("scope", ["default"]) or ["default"])[0]
+                q = (params.get("q", [""]) or [""])[0].strip()
+                out_format = (params.get("format", ["json"]) or ["json"])[0].strip().lower()
                 with db.connect(self.server.db_path) as conn:
                     if scope == "all":
                         if user.role != "admin" and not db.role_has_permission(conn, user.role, "requests:read_all"):
@@ -443,6 +484,36 @@ class Handler(BaseHTTPRequestHandler):
                         rows = db.list_requests(conn, user.id, False)
                     else:
                         rows = db.list_requests(conn, user.id, user.role == "admin")
+                if q:
+                    ql = q.lower()
+                    rows = [r for r in rows if ql in str(r["title"]).lower() or ql in str(r["body"]).lower()]
+
+                if out_format == "csv":
+                    items = [_row_to_request(r) for r in rows]
+                    buf = io.StringIO()
+                    w = csv.writer(buf, lineterminator="\n")
+                    w.writerow(["id", "type", "title", "body", "status", "owner_username", "created_at"])
+                    for it in items:
+                        w.writerow(
+                            [
+                                it["id"],
+                                it["type"],
+                                it["title"],
+                                it["body"],
+                                it["status"],
+                                it["owner"]["username"],
+                                it["created_at"],
+                            ]
+                        )
+                    data = buf.getvalue().encode("utf-8")
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", "text/csv; charset=utf-8")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Content-Disposition", 'attachment; filename="requests.csv"')
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+
                 self._send_json(HTTPStatus.OK, {"items": [_row_to_request(r) for r in rows]})
                 return
 
@@ -942,6 +1013,12 @@ class Handler(BaseHTTPRequestHandler):
                 if "role" in payload:
                     role = payload.get("role")
                     updates["role"] = None if role in (None, "") else str(role).strip()
+                if "dept_id" in payload:
+                    dept_id = payload.get("dept_id")
+                    updates["dept_id"] = None if dept_id in (None, "") else int(dept_id)
+                if "position" in payload:
+                    position = payload.get("position")
+                    updates["position"] = None if position in (None, "") else str(position).strip()
                 with db.connect(self.server.db_path) as conn:
                     if "manager_id" in updates and updates["manager_id"] is not None:
                         mgr = db.get_user_by_id(conn, int(updates["manager_id"]))
@@ -955,6 +1032,10 @@ class Handler(BaseHTTPRequestHandler):
                             return
                         if not db.role_exists(conn, str(role_v)):
                             self._send_error(HTTPStatus.BAD_REQUEST, "invalid_role")
+                            return
+                    if "dept_id" in updates and updates["dept_id"] is not None:
+                        if not db.get_department(conn, int(updates["dept_id"])):
+                            self._send_error(HTTPStatus.BAD_REQUEST, "invalid_dept_id")
                             return
                     db.update_user(conn, user_id, **updates)
                 self._send_empty(HTTPStatus.NO_CONTENT)
@@ -1019,6 +1100,27 @@ class Handler(BaseHTTPRequestHandler):
                     db.upsert_role(conn, role_name)
                     db.replace_role_permissions(conn, role_name, perms)
                 self._send_json(HTTPStatus.CREATED, {"ok": True})
+                return
+
+            if path == "/api/admin/departments":
+                self._require_permission("org:manage")
+                payload = _read_json(self) or {}
+                name = str(payload.get("name", "")).strip()
+                parent_id = payload.get("parent_id", None)
+                if not name:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "missing_fields")
+                    return
+                parent_id_i = None if parent_id in (None, "") else int(parent_id)
+                with db.connect(self.server.db_path) as conn:
+                    if parent_id_i is not None and not db.get_department(conn, parent_id_i):
+                        self._send_error(HTTPStatus.BAD_REQUEST, "invalid_parent_id")
+                        return
+                    try:
+                        dept_id = db.create_department(conn, name=name, parent_id=parent_id_i)
+                    except Exception:
+                        self._send_error(HTTPStatus.CONFLICT, "conflict")
+                        return
+                self._send_json(HTTPStatus.CREATED, {"id": int(dept_id)})
                 return
 
             if path == "/api/admin/workflows/delete":
@@ -1249,6 +1351,8 @@ def _row_to_user(row) -> dict[str, Any]:
         "username": str(row["username"]),
         "role": str(row["role"]),
         "dept": None if row["dept"] is None else str(row["dept"]),
+        "dept_id": None if row["dept_id"] is None else int(row["dept_id"]),
+        "position": None if row["position"] is None else str(row["position"]),
         "manager_id": None if row["manager_id"] is None else int(row["manager_id"]),
         "manager_username": None if row["manager_username"] is None else str(row["manager_username"]),
         "created_at": int(row["created_at"]),

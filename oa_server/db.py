@@ -144,6 +144,13 @@ def init_db(db_path: Path) -> None:
               revoked_at INTEGER
             );
 
+            CREATE TABLE IF NOT EXISTS departments (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL UNIQUE,
+              parent_id INTEGER REFERENCES departments(id) ON DELETE SET NULL,
+              created_at INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS workflow_definitions (
               request_type TEXT PRIMARY KEY,
               name TEXT NOT NULL,
@@ -194,6 +201,8 @@ def init_db(db_path: Path) -> None:
 
         _ensure_column(conn, "users", "dept", "TEXT")
         _ensure_column(conn, "users", "manager_id", "INTEGER")
+        _ensure_column(conn, "users", "dept_id", "INTEGER")
+        _ensure_column(conn, "users", "position", "TEXT")
         _ensure_column(conn, "requests", "request_type", "TEXT NOT NULL DEFAULT 'generic'")
         _ensure_column(conn, "requests", "workflow_key", "TEXT")
         _ensure_column(conn, "requests", "payload_json", "TEXT")
@@ -251,7 +260,16 @@ def list_users(conn: sqlite3.Connection):
 _UNSET = object()
 
 
-def update_user(conn: sqlite3.Connection, user_id: int, *, dept=_UNSET, manager_id=_UNSET, role=_UNSET) -> None:
+def update_user(
+    conn: sqlite3.Connection,
+    user_id: int,
+    *,
+    dept=_UNSET,
+    manager_id=_UNSET,
+    role=_UNSET,
+    dept_id=_UNSET,
+    position=_UNSET,
+) -> None:
     sets: list[str] = []
     params: list[object] = []
     if dept is not _UNSET:
@@ -263,6 +281,12 @@ def update_user(conn: sqlite3.Connection, user_id: int, *, dept=_UNSET, manager_
     if role is not _UNSET:
         sets.append("role = ?")
         params.append(role)
+    if dept_id is not _UNSET:
+        sets.append("dept_id = ?")
+        params.append(dept_id)
+    if position is not _UNSET:
+        sets.append("position = ?")
+        params.append(position)
     if not sets:
         return
     params.append(user_id)
@@ -1098,6 +1122,23 @@ def is_active_delegate(conn: sqlite3.Connection, delegator_user_id: int, delegat
         (delegator_user_id, delegate_user_id),
     ).fetchone()
     return row is not None
+
+
+def create_department(conn: sqlite3.Connection, *, name: str, parent_id: int | None) -> int:
+    now = int(time.time())
+    cur = conn.execute(
+        "INSERT INTO departments(name,parent_id,created_at) VALUES(?,?,?)",
+        (name, parent_id, now),
+    )
+    return int(cur.lastrowid)
+
+
+def get_department(conn: sqlite3.Connection, dept_id: int):
+    return conn.execute("SELECT * FROM departments WHERE id=?", (dept_id,)).fetchone()
+
+
+def list_departments(conn: sqlite3.Connection):
+    return conn.execute("SELECT * FROM departments ORDER BY id ASC").fetchall()
 
 
 def _notify_for_request_event(
