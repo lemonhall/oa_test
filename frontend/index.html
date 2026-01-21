@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OA Demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">OA Demo</div>
+      <div class="spacer"></div>
+      <div id="whoami" class="muted"></div>
+      <button id="logoutBtn" class="btn btn-secondary" hidden>退出</button>
+    </header>
+
+    <main class="container">
+      <section id="loginView" class="card">
+        <h1>登录</h1>
+        <p class="muted">默认账号：admin/admin（管理员），user/user（普通用户）</p>
+        <div class="grid">
+          <label>
+            <div class="label">用户名</div>
+            <input id="username" autocomplete="username" />
+          </label>
+          <label>
+            <div class="label">密码</div>
+            <input id="password" type="password" autocomplete="current-password" />
+          </label>
+          <button id="loginBtn" class="btn">登录</button>
+          <div id="loginError" class="error"></div>
+        </div>
+      </section>
+
+      <section id="appView" hidden>
+        <nav class="tabs card">
+          <button class="tabbtn" data-tab="create">发起申请</button>
+          <button class="tabbtn" data-tab="requests">我的申请</button>
+          <button class="tabbtn" data-tab="inbox">我的待办</button>
+          <button id="usersTabBtn" class="tabbtn" data-tab="users" hidden>用户管理</button>
+        </nav>
+
+        <section id="tab-create" class="card">
+          <h2>发起申请</h2>
+          <div class="grid">
+            <label>
+              <div class="label">类型</div>
+              <select id="reqType">
+                <option value="leave">请假</option>
+                <option value="expense">报销</option>
+                <option value="generic">通用</option>
+              </select>
+            </label>
+            <label>
+              <div class="label">标题</div>
+              <input id="reqTitle" placeholder="例如：请假 / 报销 / 采购" />
+            </label>
+            <label>
+              <div class="label">内容</div>
+              <textarea id="reqBody" rows="4" placeholder="写明原因、时间、金额等"></textarea>
+            </label>
+            <div class="row">
+              <button id="createBtn" class="btn">提交</button>
+              <div id="createError" class="error"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="tab-requests" class="card" hidden>
+          <div class="row">
+            <h2>我的申请</h2>
+            <div class="spacer"></div>
+            <label id="scopeWrap" class="row muted" style="gap: 6px" hidden>
+              <input id="scopeAll" type="checkbox" />
+              <span>看全部</span>
+            </label>
+            <button id="refreshRequestsBtn" class="btn btn-secondary">刷新</button>
+          </div>
+          <div id="requestsList" class="list"></div>
+        </section>
+
+        <section id="tab-inbox" class="card" hidden>
+          <div class="row">
+            <h2>我的待办</h2>
+            <div class="spacer"></div>
+            <button id="refreshInboxBtn" class="btn btn-secondary">刷新</button>
+          </div>
+          <div id="inboxList" class="list"></div>
+        </section>
+
+        <section id="tab-users" class="card" hidden>
+          <div class="row">
+            <h2>用户管理</h2>
+            <div class="spacer"></div>
+            <button id="refreshUsersBtn" class="btn btn-secondary">刷新</button>
+          </div>
+          <div id="usersList" class="list"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

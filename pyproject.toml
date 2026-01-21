@@ -1,0 +1,6 @@
+[project]
+name = "oa"
+version = "0.1.0"
+description = "A tiny OA demo: vanilla JS frontend + Python stdlib backend."
+readme = "README.md"
+requires-python = ">=3.11"
