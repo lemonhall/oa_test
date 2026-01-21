@@ -122,3 +122,33 @@
 - [x] 制度/公告发布
 - [x] 阅读确认
 
+
+## 下一阶段（建议）
+
+### 代码健康（优先）
+
+- [x] （无需拆分）`oa_server/auth.py` 已约 54 行
+- [ ] 统一 `oa_server/` 与 `src/oa_server/` 的重复实现（只保留一套，避免双维护）
+- [ ] 处理遗留 `oa_server/_db/db_monolith_legacy.py`（迁移完成后移除/归档）
+- [ ] 拆分 `oa_server/_db/workflow_variants.py`（500+ 行，按 catalog/migrate/crud 拆）
+- [ ] 拆分 `oa_server/_db/workflows_legacy.py`（350+ 行，按 seed/migrate 拆）
+- [ ] 拆分 `frontend/index.html`（按 Tab/组件拆模板，减少单文件 1000+ 行）
+
+### 表单/流程配置化（中优先）
+
+- [ ] 表单定义 Schema 化：后端提供 schema（按 `request_type`）
+- [ ] 前端按 schema 动态渲染表单 + 校验 + payload 构建（减少 hardcode）
+- [ ] 管理端：表单 schema 的增删改查 + 版本管理（同一类型不同版本）
+- [ ] 工作流编辑器升级为“流程图视图”（节点/连线），并与 steps 双向同步（可选）
+
+### 体验/运营能力（按需）
+
+- [ ] 列表分页 + 高级筛选（状态/类型/时间范围/部门/关键字）
+- [ ] 催办/超时（SLA）+ 站内提醒（可配置阈值）
+- [ ] 报表：审批时长/通过率/流程分布（含导出）
+- [ ] 通知渠道扩展：Webhook/邮件/企业微信（可选）
+
+### 安全/部署（按需）
+
+- [ ] 密码策略 + 登录限流 + 审计日志导出
+- [ ] 配置化启动参数（端口、db_path、附件目录、管理员初始化等）
